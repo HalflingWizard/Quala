@@ -2,7 +2,7 @@
 
 ## Repo Goal
 
-Qualia is a single page HTML tool for human in the loop qualitative coding.
+Quala is a single page HTML tool for human in the loop qualitative coding.
 
 Keep the tool simple. It should work by opening `index.html` in a browser.
 

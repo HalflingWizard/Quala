@@ -1,6 +1,6 @@
-# Qualia
+# Quala
 
-Qualia is a browser based qualitative analysis tool for interviews, social media posts, field notes, and other text data.
+Quala is a browser based qualitative analysis tool for interviews, social media posts, field notes, and other text data.
 
 It helps a researcher build a codebook, refine it over a queue of datapoints, annotate exact quotes, and keep a history of every step.
 
@@ -45,7 +45,7 @@ The exported file is designed to work with tools that expect datapoints with an 
 
 ```json
 {
-  "tool": "Qualia",
+  "tool": "Quala",
   "exported_at": "2026-06-12T00:00:00.000Z",
   "codebook": [
     {

@@ -1,5 +1,5 @@
 
-      const STORE_KEY = "qualia-state-v1";
+      const STORE_KEY = "quala-state-v1";
 
       const defaults = {
         docs: [],
@@ -393,7 +393,7 @@
 
       function codebookSchema() {
         return {
-          name: "qualia_codebook_step",
+          name: "quala_codebook_step",
           schema: {
             type: "object",
             additionalProperties: false,
@@ -423,7 +423,7 @@
 
       function annotationSchema() {
         return {
-          name: "qualia_annotation_step",
+          name: "quala_annotation_step",
           schema: {
             type: "object",
             additionalProperties: false,
@@ -694,7 +694,7 @@
 
       function exportPayload() {
         return {
-          tool: "Qualia",
+          tool: "Quala",
           exported_at: new Date().toISOString(),
           codebook: state.codebook.map(({ id, ...rest }) => rest),
           data: state.annotations.map((doc) => ({
@@ -834,7 +834,7 @@
         render();
       });
 
-      els.exportBtn.addEventListener("click", () => downloadJson("qualia_annotations.json", exportPayload()));
+      els.exportBtn.addEventListener("click", () => downloadJson("quala_annotations.json", exportPayload()));
       els.copyAnnotationsBtn.addEventListener("click", () => copyText(JSON.stringify(exportPayload().data, null, 2)));
       els.copyCodebookBtn.addEventListener("click", () => copyText(JSON.stringify(state.codebook, null, 2)));
 
