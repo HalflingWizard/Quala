@@ -1,0 +1,697 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Qualia</title>
+    <style>
+      :root {
+        --bg: #f5f7fb;
+        --card: #ffffff;
+        --text: #1f2937;
+        --muted: #6b7280;
+        --accent: #2563eb;
+        --accent-strong: #1d4ed8;
+        --accent-soft: #dbeafe;
+        --danger: #dc2626;
+        --ok: #16a34a;
+        --warn: #d9782a;
+        --border: #e5e7eb;
+        --panel: #f8fafc;
+        --mono: ui-monospace, Menlo, Consolas, monospace;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        color: var(--text);
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+        background: radial-gradient(circle at top right, #eef4ff, #f5f7fb 30%);
+      }
+
+      header {
+        display: flex;
+        gap: 16px;
+        align-items: center;
+        justify-content: space-between;
+        padding: 20px 28px 10px;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 26px;
+        letter-spacing: 0;
+      }
+
+      h2 {
+        margin: 0 0 12px;
+        font-size: 18px;
+      }
+
+      h3 {
+        margin: 0 0 8px;
+        font-size: 15px;
+      }
+
+      p {
+        margin: 0;
+      }
+
+      button,
+      input,
+      select,
+      textarea {
+        font: inherit;
+      }
+
+      button {
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        padding: 8px 12px;
+        background: #fff;
+        color: var(--text);
+        cursor: pointer;
+      }
+
+      button:hover {
+        background: #f8fafc;
+      }
+
+      button.primary {
+        border-color: var(--accent);
+        background: var(--accent);
+        color: #fff;
+      }
+
+      button.primary:hover {
+        border-color: var(--accent-strong);
+        background: var(--accent-strong);
+      }
+
+      button.danger {
+        border-color: #fecaca;
+        color: var(--danger);
+      }
+
+      button:disabled {
+        cursor: not-allowed;
+        opacity: 0.55;
+      }
+
+      label {
+        display: block;
+        margin-bottom: 6px;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 700;
+        text-transform: uppercase;
+      }
+
+      input,
+      select,
+      textarea {
+        width: 100%;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 9px 10px;
+        background: #fff;
+        color: var(--text);
+      }
+
+      textarea {
+        min-height: 110px;
+        resize: vertical;
+      }
+
+      code,
+      pre {
+        font-family: var(--mono);
+      }
+
+      .shell {
+        display: grid;
+        grid-template-columns: 260px minmax(0, 1fr);
+        gap: 18px;
+        padding: 0 28px 28px;
+      }
+
+      .sidebar,
+      .panel {
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: var(--card);
+        box-shadow: 0 8px 28px rgba(15, 23, 42, 0.05);
+      }
+
+      .sidebar {
+        height: calc(100vh - 94px);
+        min-height: 640px;
+        padding: 14px;
+        position: sticky;
+        top: 18px;
+      }
+
+      .main {
+        display: grid;
+        gap: 18px;
+      }
+
+      .panel {
+        padding: 16px;
+      }
+
+      .navBtn {
+        display: flex;
+        width: 100%;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 8px;
+        border-radius: 9px;
+        text-align: left;
+      }
+
+      .navBtn.active {
+        border-color: #93c5fd;
+        background: var(--accent-soft);
+      }
+
+      .muted {
+        color: var(--muted);
+      }
+
+      .small {
+        font-size: 13px;
+      }
+
+      .tiny {
+        font-size: 12px;
+      }
+
+      .grid2 {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .grid3 {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .row {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+
+      .row.between {
+        justify-content: space-between;
+      }
+
+      .stack {
+        display: grid;
+        gap: 12px;
+      }
+
+      .statGrid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .stat {
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 10px;
+        background: var(--panel);
+      }
+
+      .stat .value {
+        font-size: 22px;
+        font-weight: 800;
+      }
+
+      .tabs {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 14px;
+      }
+
+      .tab {
+        border-radius: 999px;
+        padding: 7px 12px;
+      }
+
+      .tab.active {
+        border-color: var(--accent);
+        background: var(--accent-soft);
+        color: #174ea6;
+      }
+
+      .hidden {
+        display: none !important;
+      }
+
+      .list {
+        display: grid;
+        gap: 8px;
+      }
+
+      .item {
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 10px;
+        background: #fff;
+      }
+
+      .item.active {
+        border-color: #93c5fd;
+        background: #eff6ff;
+      }
+
+      .itemTitle {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        font-weight: 700;
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 3px 8px;
+        background: #fff;
+        color: var(--muted);
+        font-size: 12px;
+        white-space: nowrap;
+      }
+
+      .pill.ok {
+        border-color: #bbf7d0;
+        background: #f0fdf4;
+        color: #166534;
+      }
+
+      .pill.warn {
+        border-color: #fed7aa;
+        background: #fff7ed;
+        color: #9a3412;
+      }
+
+      .pill.bad {
+        border-color: #fecaca;
+        background: #fef2f2;
+        color: #991b1b;
+      }
+
+      .tableWrap {
+        overflow: auto;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 14px;
+      }
+
+      th,
+      td {
+        padding: 10px;
+        border-bottom: 1px solid var(--border);
+        text-align: left;
+        vertical-align: top;
+      }
+
+      th {
+        background: var(--panel);
+        color: #334155;
+        font-size: 12px;
+        text-transform: uppercase;
+      }
+
+      tr:last-child td {
+        border-bottom: 0;
+      }
+
+      .quote {
+        border-left: 3px solid var(--accent);
+        padding: 8px 10px;
+        background: #f8fafc;
+        white-space: pre-wrap;
+      }
+
+      .jsonBox {
+        max-height: 320px;
+        overflow: auto;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 10px;
+        background: #0f172a;
+        color: #e5e7eb;
+        font-size: 12px;
+      }
+
+      .log {
+        min-height: 42px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 10px;
+        background: var(--panel);
+        white-space: pre-wrap;
+      }
+
+      .progress {
+        height: 10px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: #e2e8f0;
+      }
+
+      .bar {
+        width: 0%;
+        height: 100%;
+        background: var(--accent);
+        transition: width 0.2s ease;
+      }
+
+      .modalBackdrop {
+        position: fixed;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+        background: rgba(15, 23, 42, 0.38);
+        z-index: 20;
+      }
+
+      .modalBackdrop.open {
+        display: flex;
+      }
+
+      .modal {
+        width: min(900px, 100%);
+        max-height: 88vh;
+        overflow: auto;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 16px;
+        background: #fff;
+      }
+
+      .modalHead {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: center;
+        margin-bottom: 12px;
+      }
+
+      .fileInput {
+        display: none;
+      }
+
+      @media (max-width: 980px) {
+        .shell {
+          grid-template-columns: 1fr;
+        }
+
+        .sidebar {
+          height: auto;
+          min-height: 0;
+          position: static;
+        }
+
+        .grid2,
+        .grid3,
+        .statGrid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div>
+        <h1>Qualia</h1>
+        <p class="muted small">Human in the loop qualitative coding for transcripts, posts, and field text.</p>
+      </div>
+      <div class="row">
+        <button id="saveBtn">Save</button>
+        <button id="exportBtn" class="primary">Export JSON</button>
+      </div>
+    </header>
+
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="stack">
+          <button class="navBtn active" data-view="workspace">Workspace <span class="pill" id="queuePill">0 docs</span></button>
+          <button class="navBtn" data-view="codebook">Codebook <span class="pill" id="codePill">0 codes</span></button>
+          <button class="navBtn" data-view="annotations">Annotations <span class="pill" id="annPill">0 quotes</span></button>
+          <button class="navBtn" data-view="history">History <span class="pill" id="histPill">0</span></button>
+          <button class="navBtn" data-view="preferences">Preferences <span class="pill" id="modelPill">model</span></button>
+        </div>
+        <hr />
+        <div class="stack small">
+          <div class="progress"><div class="bar" id="progressBar"></div></div>
+          <div id="statusLine" class="muted">Ready.</div>
+          <div id="activityLog" class="log tiny">No run yet.</div>
+        </div>
+      </aside>
+
+      <main class="main">
+        <section id="workspaceView" class="view panel">
+          <div class="row between">
+            <div>
+              <h2>Workspace</h2>
+              <p class="muted small">Add documents, then process one datapoint at a time.</p>
+            </div>
+            <div class="row">
+              <button id="importBtn">Open files</button>
+              <button id="addTextBtn" class="primary">Add text</button>
+              <input id="fileInput" class="fileInput" type="file" multiple accept=".txt,.md,.json,.csv,text/plain,application/json,text/csv" />
+            </div>
+          </div>
+
+          <div class="statGrid" style="margin: 14px 0">
+            <div class="stat"><div class="value" id="statDocs">0</div><div class="muted small">Datapoints</div></div>
+            <div class="stat"><div class="value" id="statCoded">0</div><div class="muted small">Coded</div></div>
+            <div class="stat"><div class="value" id="statCodes">0</div><div class="muted small">Codes</div></div>
+            <div class="stat"><div class="value" id="statQuotes">0</div><div class="muted small">Quote links</div></div>
+          </div>
+
+          <div class="grid2">
+            <div>
+              <div class="row between" style="margin-bottom: 8px">
+                <h3>Queue</h3>
+                <button id="clearDocsBtn" class="danger">Clear</button>
+              </div>
+              <div id="docList" class="list"></div>
+            </div>
+            <div class="stack">
+              <div class="row between">
+                <h3 id="currentTitle">Selected datapoint</h3>
+                <div class="row">
+                  <button id="processCurrentBtn" class="primary">Process selected</button>
+                  <button id="processNextBtn">Process next</button>
+                </div>
+              </div>
+              <textarea id="docText" placeholder="Select a datapoint or paste text here."></textarea>
+              <div class="grid2">
+                <div>
+                  <label for="docId">ID</label>
+                  <input id="docId" />
+                </div>
+                <div>
+                  <label for="docSource">Source</label>
+                  <input id="docSource" />
+                </div>
+              </div>
+              <div class="row">
+                <button id="updateDocBtn">Update datapoint</button>
+                <button id="deleteDocBtn" class="danger">Delete datapoint</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="codebookView" class="view panel hidden">
+          <div class="row between">
+            <div>
+              <h2>Codebook</h2>
+              <p class="muted small">Review, edit, merge, add, or remove codes after each GPT pass.</p>
+            </div>
+            <div class="row">
+              <button id="addCodeBtn">Add code</button>
+              <button id="copyCodebookBtn">Copy JSON</button>
+            </div>
+          </div>
+          <div class="tableWrap" style="margin-top: 14px">
+            <table>
+              <thead>
+                <tr>
+                  <th>Code</th>
+                  <th>Definition</th>
+                  <th>Example</th>
+                  <th>Coverage</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="codebookRows"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="annotationsView" class="view panel hidden">
+          <div class="row between">
+            <div>
+              <h2>Annotations</h2>
+              <p class="muted small">Each record keeps exact quotes and an `annotation` list for downstream tools.</p>
+            </div>
+            <button id="copyAnnotationsBtn">Copy JSON</button>
+          </div>
+          <div id="annotationList" class="list" style="margin-top: 14px"></div>
+        </section>
+
+        <section id="historyView" class="view panel hidden">
+          <div class="row between">
+            <div>
+              <h2>History</h2>
+              <p class="muted small">Restore earlier versions when a coding step needs correction.</p>
+            </div>
+            <button id="snapshotBtn">Create snapshot</button>
+          </div>
+          <div id="historyList" class="list" style="margin-top: 14px"></div>
+        </section>
+
+        <section id="preferencesView" class="view panel hidden">
+          <div class="row between">
+            <div>
+              <h2>Preferences</h2>
+              <p class="muted small">Set the API key, model, parameters, study lens, and editable prompts.</p>
+            </div>
+            <button id="loadModelsBtn" class="primary">Load models</button>
+          </div>
+
+          <div class="grid3" style="margin-top: 14px">
+            <div>
+              <label for="apiKey">OpenAI API key</label>
+              <input id="apiKey" type="password" autocomplete="off" placeholder="sk..." />
+            </div>
+            <div>
+              <label for="modelSelect">Model</label>
+              <select id="modelSelect"></select>
+            </div>
+            <div>
+              <label for="temperature">Temperature</label>
+              <input id="temperature" type="number" min="0" max="2" step="0.1" />
+            </div>
+            <div>
+              <label for="verbosity">Verbosity</label>
+              <select id="verbosity">
+                <option>low</option>
+                <option>medium</option>
+                <option>high</option>
+              </select>
+            </div>
+            <div>
+              <label for="reasoning">Reasoning effort</label>
+              <select id="reasoning">
+                <option>minimal</option>
+                <option>low</option>
+                <option>medium</option>
+                <option>high</option>
+              </select>
+            </div>
+            <div>
+              <label for="maxQuotes">Max quotes per code</label>
+              <input id="maxQuotes" type="number" min="1" max="50" step="1" />
+            </div>
+          </div>
+
+          <div class="stack" style="margin-top: 14px">
+            <div>
+              <label for="lens">Study lens</label>
+              <textarea id="lens"></textarea>
+            </div>
+            <div>
+              <label for="codebookPrompt">Codebook prompt</label>
+              <textarea id="codebookPrompt"></textarea>
+            </div>
+            <div>
+              <label for="refinePrompt">Refinement prompt</label>
+              <textarea id="refinePrompt"></textarea>
+            </div>
+            <div>
+              <label for="annotationPrompt">Annotation prompt</label>
+              <textarea id="annotationPrompt"></textarea>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div id="textModal" class="modalBackdrop">
+      <div class="modal">
+        <div class="modalHead">
+          <h2>Add datapoint</h2>
+          <button data-close-modal>Close</button>
+        </div>
+        <div class="stack">
+          <div class="grid2">
+            <div>
+              <label for="newId">ID</label>
+              <input id="newId" />
+            </div>
+            <div>
+              <label for="newSource">Source</label>
+              <input id="newSource" />
+            </div>
+          </div>
+          <div>
+            <label for="newText">Text</label>
+            <textarea id="newText" style="min-height: 260px"></textarea>
+          </div>
+          <button id="confirmAddTextBtn" class="primary">Add datapoint</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="codeModal" class="modalBackdrop">
+      <div class="modal">
+        <div class="modalHead">
+          <h2>Edit code</h2>
+          <button data-close-modal>Close</button>
+        </div>
+        <div class="stack">
+          <input id="editCodeId" class="hidden" />
+          <div>
+            <label for="editCodeName">Code</label>
+            <input id="editCodeName" />
+          </div>
+          <div>
+            <label for="editCodeDefinition">Definition</label>
+            <textarea id="editCodeDefinition"></textarea>
+          </div>
+          <div>
+            <label for="editCodeExample">Example</label>
+            <textarea id="editCodeExample"></textarea>
+          </div>
+          <button id="saveCodeBtn" class="primary">Save code</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
