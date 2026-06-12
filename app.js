@@ -527,19 +527,36 @@
         ];
       }
 
+      function modelCapabilities(model) {
+        const id = String(model || "").toLowerCase();
+        const isGpt5 = id.startsWith("gpt-5");
+        const isOSeries = /^o\d/.test(id) || id.startsWith("o-");
+        const isKnownGpt = id.startsWith("gpt-3") || id.startsWith("gpt-4");
+        return {
+          temperature: isKnownGpt && !isOSeries,
+          verbosity: isGpt5,
+          reasoning: isGpt5 || isOSeries
+        };
+      }
+
       async function callOpenAI(input, schema) {
         readPreferences();
         if (!state.preferences.apiKey) throw new Error("Add an OpenAI API key in Preferences.");
+        const capabilities = modelCapabilities(state.preferences.model);
         const body = {
           model: state.preferences.model,
           input,
-          temperature: state.preferences.temperature,
           text: {
-            verbosity: state.preferences.verbosity,
             format: { type: "json_schema", ...schema }
           }
         };
-        if (state.preferences.reasoning) {
+        if (capabilities.temperature) {
+          body.temperature = state.preferences.temperature;
+        }
+        if (capabilities.verbosity) {
+          body.text.verbosity = state.preferences.verbosity;
+        }
+        if (capabilities.reasoning && state.preferences.reasoning) {
           body.reasoning = { effort: state.preferences.reasoning };
         }
         const response = await fetch("https://api.openai.com/v1/responses", {

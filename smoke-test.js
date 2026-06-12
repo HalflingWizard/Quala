@@ -87,4 +87,19 @@ if (!elements.modelSelect.options.length) {
   throw new Error("Preferences did not render model options.");
 }
 
+const gpt4o = context.modelCapabilities("gpt-4o");
+if (!gpt4o.temperature || gpt4o.verbosity || gpt4o.reasoning) {
+  throw new Error("GPT-4 style model capabilities are wrong.");
+}
+
+const gpt55 = context.modelCapabilities("gpt-5.5");
+if (gpt55.temperature || !gpt55.verbosity || !gpt55.reasoning) {
+  throw new Error("GPT-5 style model capabilities are wrong.");
+}
+
+const o3 = context.modelCapabilities("o3");
+if (o3.temperature || o3.verbosity || !o3.reasoning) {
+  throw new Error("o-series model capabilities are wrong.");
+}
+
 console.log("startup ok");

@@ -92,4 +92,6 @@ OpenAI requests are sent directly from the browser to the OpenAI API. Do not pas
 
 ## Notes
 
-The OpenAI API integration uses the Responses API with structured JSON output. The Preferences page exposes verbosity and reasoning effort, based on current OpenAI text generation parameters.
+The OpenAI API integration uses the Responses API with structured JSON output.
+
+Quala builds model aware requests. It sends temperature to GPT-4 style models. It sends verbosity to GPT-5 style models. It sends reasoning effort to GPT-5 and o-series reasoning models. Unknown model families get only the required request fields.
