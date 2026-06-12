@@ -26,11 +26,11 @@
         }
       };
 
-      let state = loadState();
-
       const $ = (id) => document.getElementById(id);
       const clone = (obj) => JSON.parse(JSON.stringify(obj));
       const uid = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+
+      let state = loadState();
 
       const els = {
         activityLog: $("activityLog"),
@@ -372,21 +372,12 @@
       async function handleFiles(files) {
         const docs = [];
         for (const file of files) {
-          const text = await file.text();
-          if (file.name.endsWith(".json")) {
-            try {
-              const parsed = JSON.parse(text);
-              const items = Array.isArray(parsed) ? parsed : Array.isArray(parsed.data) ? parsed.data : [];
-              for (const item of items) {
-                const body = item.text || item.transcript || item.content || item.body || item.post || "";
-                docs.push({ id: String(item.id || item.name || `D${docs.length + 1}`), source: file.name, text: String(body) });
-              }
-            } catch {
-              docs.push({ id: file.name, source: file.name, text });
-            }
-          } else {
-            docs.push({ id: file.name, source: file.name, text });
+          if (!file.name.toLowerCase().endsWith(".txt") && file.type !== "text/plain") {
+            setStatus("Only TXT files are supported.");
+            continue;
           }
+          const text = await file.text();
+          docs.push({ id: file.name, source: file.name, text });
         }
         addDocuments(docs);
       }

@@ -32,9 +32,16 @@ Keep application logic in `app.js`.
 Before committing UI changes, open `index.html` and check these paths.
 
 1. Add a datapoint by paste.
-2. Edit and save Preferences.
-3. Add a manual code.
-4. Create and restore a History snapshot.
-5. Export JSON.
+2. Add a datapoint from a TXT file.
+3. Edit and save Preferences.
+4. Add a manual code.
+5. Create and restore a History snapshot.
+6. Export JSON.
+
+Also run this startup check.
+
+```bash
+node smoke-test.js
+```
 
 For API related changes, also test loading models and one short datapoint when an API key is available.

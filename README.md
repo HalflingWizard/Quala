@@ -6,7 +6,7 @@ It helps a researcher build a codebook, refine it over a queue of datapoints, an
 
 ## What It Does
 
-- Add datapoints by pasting text or opening local text and JSON files.
+- Add datapoints by pasting text or opening local TXT files.
 - Store an OpenAI API key in the browser and load available models.
 - Edit the study lens, codebook prompt, refinement prompt, and annotation prompt.
 - Generate an initial codebook from the first datapoint with a codebook agent.
@@ -25,6 +25,14 @@ No build step is needed.
 
 The app logic is in `app.js`.
 
+## Test
+
+Run the startup smoke test.
+
+```bash
+node smoke-test.js
+```
+
 ## Workflow
 
 1. Open `index.html`.
@@ -33,7 +41,7 @@ The app logic is in `app.js`.
 4. Load models or use the default model value.
 5. Edit the study lens and prompts if needed.
 6. Go to Workspace.
-7. Add or open datapoints.
+7. Add datapoints by paste or open TXT files.
 8. Process the selected datapoint.
 9. Review the codebook and annotations.
 10. Edit or restore from History when needed.
