@@ -477,9 +477,15 @@
               <p class="muted small">Add documents, then process one datapoint at a time.</p>
             </div>
             <div class="row">
-              <button id="importBtn">Open TXT</button>
+              <button id="importBtn">Open TXT or DOCX</button>
               <button id="addTextBtn" class="primary">Add text</button>
-              <input id="fileInput" class="fileInput" type="file" multiple accept=".txt,text/plain" />
+              <input
+                id="fileInput"
+                class="fileInput"
+                type="file"
+                multiple
+                accept=".txt,.docx,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              />
             </div>
           </div>
 

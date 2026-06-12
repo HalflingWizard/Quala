@@ -64,6 +64,7 @@ const localStorage = {
 const context = {
   document,
   localStorage,
+  TextDecoder,
   Blob: function Blob() {},
   URL: {
     createObjectURL() {
@@ -85,6 +86,38 @@ vm.runInContext(fs.readFileSync("app.js", "utf8"), context);
 
 if (!elements.modelSelect.options.length) {
   throw new Error("Preferences did not render model options.");
+}
+
+if (!elements.fileInput || !html.includes(".docx")) {
+  throw new Error("DOCX file input is not available.");
+}
+
+if (typeof context.readDocx !== "function") {
+  throw new Error("DOCX reader did not load.");
+}
+
+const zipName = Buffer.from("word/document.xml");
+const zipContent = Buffer.from("<document>test</document>");
+const localHeader = Buffer.alloc(30);
+localHeader.writeUInt32LE(0x04034b50, 0);
+localHeader.writeUInt16LE(zipName.length, 26);
+const centralHeader = Buffer.alloc(46);
+centralHeader.writeUInt32LE(0x02014b50, 0);
+centralHeader.writeUInt32LE(zipContent.length, 20);
+centralHeader.writeUInt32LE(zipContent.length, 24);
+centralHeader.writeUInt16LE(zipName.length, 28);
+const endHeader = Buffer.alloc(22);
+endHeader.writeUInt32LE(0x06054b50, 0);
+endHeader.writeUInt16LE(1, 8);
+endHeader.writeUInt16LE(1, 10);
+endHeader.writeUInt32LE(centralHeader.length + zipName.length, 12);
+endHeader.writeUInt32LE(localHeader.length + zipName.length + zipContent.length, 16);
+const zipBytes = new Uint8Array(
+  Buffer.concat([localHeader, zipName, zipContent, centralHeader, zipName, endHeader])
+);
+const zipEntry = context.findZipEntry(zipBytes, "word/document.xml");
+if (zipEntry.compression !== 0 || zipEntry.compressedSize !== zipContent.length) {
+  throw new Error("DOCX ZIP entry could not be read.");
 }
 
 const gpt4o = context.modelCapabilities("gpt-4o");

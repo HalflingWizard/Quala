@@ -369,17 +369,102 @@
         render();
       }
 
+      function findZipEntry(bytes, entryName) {
+        const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+        let endOffset = -1;
+        const searchStart = Math.max(0, bytes.length - 65557);
+        for (let offset = bytes.length - 22; offset >= searchStart; offset--) {
+          if (view.getUint32(offset, true) === 0x06054b50) {
+            endOffset = offset;
+            break;
+          }
+        }
+        if (endOffset < 0) throw new Error("The DOCX file is not a valid ZIP archive.");
+
+        const decoder = new TextDecoder();
+        const entryCount = view.getUint16(endOffset + 10, true);
+        let offset = view.getUint32(endOffset + 16, true);
+        for (let index = 0; index < entryCount; index++) {
+          if (view.getUint32(offset, true) !== 0x02014b50) break;
+          const nameLength = view.getUint16(offset + 28, true);
+          const extraLength = view.getUint16(offset + 30, true);
+          const commentLength = view.getUint16(offset + 32, true);
+          const name = decoder.decode(bytes.subarray(offset + 46, offset + 46 + nameLength));
+          if (name === entryName) {
+            return {
+              compression: view.getUint16(offset + 10, true),
+              compressedSize: view.getUint32(offset + 20, true),
+              localOffset: view.getUint32(offset + 42, true)
+            };
+          }
+          offset += 46 + nameLength + extraLength + commentLength;
+        }
+        throw new Error("The DOCX file does not contain a main document.");
+      }
+
+      async function readZipEntry(bytes, entryName) {
+        const entry = findZipEntry(bytes, entryName);
+        const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+        if (view.getUint32(entry.localOffset, true) !== 0x04034b50) {
+          throw new Error("The DOCX document entry is invalid.");
+        }
+        const nameLength = view.getUint16(entry.localOffset + 26, true);
+        const extraLength = view.getUint16(entry.localOffset + 28, true);
+        const dataOffset = entry.localOffset + 30 + nameLength + extraLength;
+        const compressed = bytes.slice(dataOffset, dataOffset + entry.compressedSize);
+        if (entry.compression === 0) return compressed;
+        if (entry.compression !== 8 || typeof DecompressionStream === "undefined") {
+          throw new Error("This browser cannot decompress this DOCX file.");
+        }
+        const stream = new Blob([compressed]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+        return new Uint8Array(await new Response(stream).arrayBuffer());
+      }
+
+      async function readDocx(file) {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        const xmlBytes = await readZipEntry(bytes, "word/document.xml");
+        const xml = new TextDecoder().decode(xmlBytes);
+        const doc = new DOMParser().parseFromString(xml, "application/xml");
+        if (doc.querySelector("parsererror")) throw new Error("The DOCX document XML is invalid.");
+
+        function nodeText(node) {
+          if (node.nodeType === 3) return node.parentNode.localName === "t" ? node.nodeValue : "";
+          if (node.localName === "tab") return "\t";
+          if (node.localName === "br" || node.localName === "cr") return "\n";
+          return Array.from(node.childNodes).map(nodeText).join("");
+        }
+
+        const paragraphs = Array.from(doc.getElementsByTagNameNS("*", "p"));
+        return paragraphs.map(nodeText).join("\n");
+      }
+
       async function handleFiles(files) {
         const docs = [];
+        const errors = [];
         for (const file of files) {
-          if (!file.name.toLowerCase().endsWith(".txt") && file.type !== "text/plain") {
-            setStatus("Only TXT files are supported.");
+          const name = file.name.toLowerCase();
+          const isTxt = name.endsWith(".txt") || file.type === "text/plain";
+          const isDocx =
+            name.endsWith(".docx") ||
+            file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+          if (!isTxt && !isDocx) {
+            errors.push(`${file.name} is not a TXT or DOCX file.`);
             continue;
           }
-          const text = await file.text();
-          docs.push({ id: file.name, source: file.name, text });
+          try {
+            const text = isDocx ? await readDocx(file) : await file.text();
+            if (!text.trim()) {
+              errors.push(`${file.name} does not contain readable text.`);
+              continue;
+            }
+            docs.push({ id: file.name, source: file.name, text });
+          } catch (error) {
+            errors.push(`${file.name} could not be opened. ${error.message}`);
+          }
         }
-        addDocuments(docs);
+        if (docs.length) addDocuments(docs);
+        if (errors.length) setStatus(errors.join(" "));
+        else if (docs.length) setStatus(`${docs.length} file${docs.length === 1 ? "" : "s"} added.`);
       }
 
       function codebookSchema() {
@@ -774,7 +859,10 @@
       });
 
       els.importBtn.addEventListener("click", () => els.fileInput.click());
-      els.fileInput.addEventListener("change", () => handleFiles(Array.from(els.fileInput.files || [])));
+      els.fileInput.addEventListener("change", async () => {
+        await handleFiles(Array.from(els.fileInput.files || []));
+        els.fileInput.value = "";
+      });
 
       els.updateDocBtn.addEventListener("click", () => {
         const doc = selectedDoc();
