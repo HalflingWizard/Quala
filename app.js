@@ -68,6 +68,7 @@
         historyList: $("historyList"),
         importBtn: $("importBtn"),
         lens: $("lens"),
+        loadProjectBtn: $("loadProjectBtn"),
         loadModelsBtn: $("loadModelsBtn"),
         maxQuotes: $("maxQuotes"),
         modelPill: $("modelPill"),
@@ -75,9 +76,11 @@
         newId: $("newId"),
         newSource: $("newSource"),
         newText: $("newText"),
+        newProjectBtn: $("newProjectBtn"),
         processCurrentBtn: $("processCurrentBtn"),
         processNextBtn: $("processNextBtn"),
         progressMascot: $("progressMascot"),
+        projectInput: $("projectInput"),
         queuePill: $("queuePill"),
         reasoning: $("reasoning"),
         refinePrompt: $("refinePrompt"),
@@ -529,6 +532,98 @@
         if (!state.selectedDocId && state.docs.length) state.selectedDocId = state.docs[0].id;
         createSnapshot("Documents added");
         render();
+      }
+
+      function createEmptyProject(keepPreferences = true) {
+        const preferences = keepPreferences ? clone(state.preferences) : clone(defaults.preferences);
+        return {
+          ...clone(defaults),
+          preferences
+        };
+      }
+
+      function newProject() {
+        if (activeRun) {
+          setStatus("Stop processing before starting a new project.");
+          return;
+        }
+        if (!window.confirm("Start a new project and clear the current workspace?")) return;
+        state = createEmptyProject(true);
+        setProgress(0);
+        render();
+        saveState("New project started.");
+      }
+
+      async function loadProjectFile(file) {
+        if (activeRun) {
+          setStatus("Stop processing before loading a project.");
+          return;
+        }
+        try {
+          const payload = JSON.parse(await file.text());
+          state = projectStateFromPayload(payload);
+          setProgress(0);
+          render();
+          saveState("Project loaded.");
+        } catch (error) {
+          setStatus("Could not load project.");
+          log(error.message);
+        }
+      }
+
+      function projectStateFromPayload(payload) {
+        const currentPreferences = clone(state.preferences);
+        const project = payload.project || payload;
+        const loaded = {
+          ...clone(defaults),
+          preferences: {
+            ...currentPreferences,
+            ...(project.preferences || payload.preferences || {}),
+            apiKey: currentPreferences.apiKey
+          },
+          docs: normalizeLoadedDocs(project.docs || payload.docs || payload.data || []),
+          selectedDocId: project.selectedDocId || payload.selectedDocId || null,
+          codebook: (payload.codebook || project.codebook || []).map((code, index) => normalizeCode(code, index)),
+          annotations: normalizeLoadedAnnotations(payload.data || project.annotations || payload.annotations || []),
+          history: project.history || payload.history || [],
+          reviewItems: payload.review_items || project.reviewItems || payload.reviewItems || [],
+          auditLog: payload.audit_log || project.auditLog || payload.auditLog || []
+        };
+        if (!loaded.docs.some((doc) => doc.id === loaded.selectedDocId)) {
+          loaded.selectedDocId = loaded.docs[0]?.id || null;
+        }
+        return loaded;
+      }
+
+      function normalizeLoadedDocs(items) {
+        const docs = [];
+        const seen = new Set();
+        for (const item of items || []) {
+          const id = String(item.id || item.doc_id || `D${docs.length + 1}`).trim();
+          if (!id || seen.has(id)) continue;
+          seen.add(id);
+          docs.push({
+            id,
+            source: item.source || item.metadata?.source || "",
+            text: item.text || "",
+            status: item.status || (item.annotation || item.quotes ? "coded" : "queued")
+          });
+        }
+        return docs;
+      }
+
+      function normalizeLoadedAnnotations(items) {
+        return (items || [])
+          .filter((item) => Array.isArray(item.quotes) || Array.isArray(item.annotation))
+          .map((item) =>
+            normalizeAnnotationDoc({
+              id: item.id || item.doc_id || "",
+              source: item.source || item.metadata?.source || "",
+              text: item.text || "",
+              annotation: item.annotation || [],
+              quotes: item.quotes || []
+            })
+          );
       }
 
       function findZipEntry(bytes, entryName) {
@@ -1340,9 +1435,16 @@
       }
 
       function exportPayload() {
+        const { apiKey, ...safePreferences } = state.preferences;
         return {
           tool: "Quala",
           exported_at: new Date().toISOString(),
+          project: {
+            docs: state.docs,
+            selectedDocId: state.selectedDocId,
+            history: state.history,
+            preferences: safePreferences
+          },
           codebook: state.codebook.map(({ id, ...rest }) => rest),
           review_items: state.reviewItems,
           audit_log: state.auditLog,
@@ -1412,6 +1514,14 @@
       els.confirmAddTextBtn.addEventListener("click", () => {
         addDocuments([{ id: els.newId.value.trim(), source: els.newSource.value.trim(), text: els.newText.value }]);
         els.textModal.classList.remove("open");
+      });
+
+      els.newProjectBtn.addEventListener("click", newProject);
+      els.loadProjectBtn.addEventListener("click", () => els.projectInput.click());
+      els.projectInput.addEventListener("change", async () => {
+        const file = els.projectInput.files?.[0];
+        if (file) await loadProjectFile(file);
+        els.projectInput.value = "";
       });
 
       els.importBtn.addEventListener("click", () => els.fileInput.click());

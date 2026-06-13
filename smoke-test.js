@@ -93,6 +93,10 @@ if (!elements.fileInput || !html.includes(".docx")) {
   throw new Error("DOCX file input is not available.");
 }
 
+if (!elements.newProjectBtn || !elements.loadProjectBtn || !elements.projectInput) {
+  throw new Error("Project controls are not available.");
+}
+
 if (typeof context.readDocx !== "function") {
   throw new Error("DOCX reader did not load.");
 }
@@ -162,8 +166,40 @@ if (scout.scout_codes[0].supporting_quotes.length !== 1 || scout.scout_codes[0].
 }
 
 const exportPayload = context.exportPayload();
-if (!Array.isArray(exportPayload.data) || !Array.isArray(exportPayload.audit_log) || !Array.isArray(exportPayload.review_items)) {
+if (
+  !Array.isArray(exportPayload.data) ||
+  !Array.isArray(exportPayload.audit_log) ||
+  !Array.isArray(exportPayload.review_items) ||
+  !exportPayload.project ||
+  !Array.isArray(exportPayload.project.docs)
+) {
   throw new Error("Export payload is missing workflow arrays.");
+}
+
+const loadedProject = context.projectStateFromPayload({
+  project: {
+    docs: [{ id: "D1", source: "test.txt", text: "Example text.", status: "queued" }],
+    selectedDocId: "D1",
+    preferences: { model: "gpt-test", apiKey: "should-not-load" }
+  },
+  codebook: [{ code_id: "C001", name: "Test code", definition: "A test code.", status: "active" }],
+  data: [
+    {
+      id: "D1",
+      source: "test.txt",
+      text: "Example text.",
+      annotation: ["Test code"],
+      quotes: [{ quote: "Example text.", annotations: ["Test code"], code_ids: ["C001"] }]
+    }
+  ],
+  review_items: [],
+  audit_log: []
+});
+if (loadedProject.docs.length !== 1 || loadedProject.codebook[0].name !== "Test code") {
+  throw new Error("Project payload did not load.");
+}
+if (loadedProject.preferences.apiKey === "should-not-load") {
+  throw new Error("Project load should not import API keys.");
 }
 
 if (!elements.stopProcessBtn || !html.includes('id="stopProcessBtn" class="danger" disabled')) {

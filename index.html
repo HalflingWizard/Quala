@@ -142,6 +142,7 @@
 
       .sidebar,
       .panel {
+        min-width: 0;
         border: 1px solid var(--border);
         border-radius: 12px;
         background: var(--card);
@@ -168,6 +169,7 @@
       .navBtn {
         display: flex;
         width: 100%;
+        min-width: 0;
         align-items: center;
         justify-content: space-between;
         margin-bottom: 8px;
@@ -209,6 +211,7 @@
         gap: 10px;
         align-items: center;
         flex-wrap: wrap;
+        min-width: 0;
       }
 
       .row.between {
@@ -218,6 +221,7 @@
       .stack {
         display: grid;
         gap: 12px;
+        min-width: 0;
       }
 
       .statGrid {
@@ -281,6 +285,8 @@
         justify-content: space-between;
         gap: 12px;
         font-weight: 700;
+        min-width: 0;
+        overflow-wrap: anywhere;
       }
 
       .pill {
@@ -294,6 +300,12 @@
         color: var(--muted);
         font-size: 12px;
         white-space: nowrap;
+      }
+
+      #statusLine {
+        max-width: 100%;
+        overflow-wrap: anywhere;
+        word-break: break-word;
       }
 
       .pill.ok {
@@ -364,12 +376,15 @@
       }
 
       .log {
+        max-width: 100%;
         min-height: 42px;
         border: 1px solid var(--border);
         border-radius: 10px;
         padding: 10px;
         background: var(--panel);
+        overflow-wrap: anywhere;
         white-space: pre-wrap;
+        word-break: break-word;
       }
 
       .progressMascot {
@@ -504,8 +519,11 @@
               <p class="muted small">Add documents, then process one datapoint at a time.</p>
             </div>
             <div class="row">
+              <button id="newProjectBtn">New project</button>
+              <button id="loadProjectBtn">Load project</button>
               <button id="importBtn">Open TXT or DOCX</button>
               <button id="addTextBtn" class="primary">Add text</button>
+              <input id="projectInput" class="fileInput" type="file" accept=".json,application/json" />
               <input
                 id="fileInput"
                 class="fileInput"
