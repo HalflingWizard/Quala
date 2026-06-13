@@ -18,17 +18,29 @@
           temperature: 0.2,
           maxQuotes: 12,
           lens:
-            "The study is about epilepsy self management, technology for self management, social support, and HCI design opportunities. Prefer surprising, novel, specific, and useful codes. Avoid ordinary facts that someone could learn from a quick web search.",
+            "Describe the qualitative study goal here. Include the research question, population, setting, and the kinds of patterns that would be useful to find.",
           codebookPrompt:
-            "Find possible new concepts in this document without using the current codebook. Focus on specific, useful, and surprising ideas. Use exact document text for every quote.",
+            "Find possible new concepts in this document without using the current codebook. Focus on ideas that help answer the study question. Every supporting quote must be copied exactly from the document as one contiguous substring. Do not change spelling, punctuation, capitalization, spacing, or wording. Do not paraphrase. Do not add ellipses. Before returning a quote, check that document_text.includes(quote) would be true.",
           refinePrompt:
-            "Compare scout findings with the current codebook. Mark each finding as new, already covered, possible merge, or needs human review. Do not create active codes directly.",
+            "Compare scout findings with the current codebook. Mark each finding as new_code, already_covered, possible_merge, or needs_human_review. Do not create active codes directly. Use only evidence quotes that were already copied exactly from the document.",
+          mergePrompt:
+            "Review whether candidate codes should stay separate or merge with existing codes. Argue both sides. Recommend merging only when the meaning, use case, and evidence type are the same and the merged definition would be clearer.",
           annotationPrompt:
-            "Apply only the existing active codebook. Do not create codes. Return exact verbatim quotes only. If a code does not appear, list it as having no instance."
+            "Apply only the existing active codebook. Do not create codes. Return exact verbatim quotes only. Each quote must be copied exactly from the document as one contiguous substring. Do not change spelling, punctuation, capitalization, spacing, or wording. Do not paraphrase. Do not add ellipses. Before returning a quote, check that document_text.includes(quote) would be true. If a code does not appear, list it as having no instance."
         }
       };
 
       const CODE_STATUSES = ["candidate", "active", "merged", "dormant", "rejected", "needs_human_review"];
+      const LEGACY_DEFAULT_PROMPTS = {
+        lens:
+          "The study is about epilepsy self management, technology for self management, social support, and HCI design opportunities. Prefer surprising, novel, specific, and useful codes. Avoid ordinary facts that someone could learn from a quick web search.",
+        codebookPrompt:
+          "Find possible new concepts in this document without using the current codebook. Focus on specific, useful, and surprising ideas. Use exact document text for every quote.",
+        refinePrompt:
+          "Compare scout findings with the current codebook. Mark each finding as new, already covered, possible merge, or needs human review. Do not create active codes directly.",
+        annotationPrompt:
+          "Apply only the existing active codebook. Do not create codes. Return exact verbatim quotes only. If a code does not appear, list it as having no instance."
+      };
 
       const $ = (id) => document.getElementById(id);
       const clone = (obj) => JSON.parse(JSON.stringify(obj));
@@ -71,6 +83,7 @@
         loadProjectBtn: $("loadProjectBtn"),
         loadModelsBtn: $("loadModelsBtn"),
         maxQuotes: $("maxQuotes"),
+        mergePrompt: $("mergePrompt"),
         modelPill: $("modelPill"),
         modelSelect: $("modelSelect"),
         newId: $("newId"),
@@ -105,10 +118,12 @@
           const raw = localStorage.getItem(STORE_KEY);
           if (!raw) return clone(defaults);
           const parsed = JSON.parse(raw);
+          const preferences = { ...clone(defaults.preferences), ...(parsed.preferences || {}) };
+          migrateLegacyDefaultPrompts(preferences, parsed.preferences || {});
           const loaded = {
             ...clone(defaults),
             ...parsed,
-            preferences: { ...clone(defaults.preferences), ...(parsed.preferences || {}) }
+            preferences
           };
           loaded.codebook = (loaded.codebook || []).map((code, index) => normalizeCode(code, index));
           loaded.annotations = (loaded.annotations || []).map(normalizeAnnotationDoc);
@@ -117,6 +132,14 @@
           return loaded;
         } catch {
           return clone(defaults);
+        }
+      }
+
+      function migrateLegacyDefaultPrompts(preferences, savedPreferences) {
+        for (const key of Object.keys(LEGACY_DEFAULT_PROMPTS)) {
+          if (savedPreferences[key] === LEGACY_DEFAULT_PROMPTS[key]) {
+            preferences[key] = defaults.preferences[key];
+          }
         }
       }
 
@@ -242,6 +265,7 @@
         els.lens.value = state.preferences.lens;
         els.codebookPrompt.value = state.preferences.codebookPrompt;
         els.refinePrompt.value = state.preferences.refinePrompt;
+        els.mergePrompt.value = state.preferences.mergePrompt;
         els.annotationPrompt.value = state.preferences.annotationPrompt;
         els.modelSelect.innerHTML = "";
         for (const model of state.preferences.models) {
@@ -309,7 +333,7 @@
         }
         for (const code of state.codebook) {
           const row = document.createElement("tr");
-          const pct = coverage[code.name] || 0;
+          const pct = coverage[code.code_id] || coverage[code.name] || 0;
           row.innerHTML = `
             <td>
               <strong>${escapeHtml(code.name)}</strong>
@@ -473,6 +497,7 @@
         state.preferences.lens = els.lens.value.trim();
         state.preferences.codebookPrompt = els.codebookPrompt.value.trim();
         state.preferences.refinePrompt = els.refinePrompt.value.trim();
+        state.preferences.mergePrompt = els.mergePrompt.value.trim();
         state.preferences.annotationPrompt = els.annotationPrompt.value.trim();
       }
 
@@ -506,15 +531,25 @@
 
       function computeCoverage() {
         const total = Math.max(1, state.docs.length);
-        const codeToDocs = {};
-        for (const docAnn of state.annotations) {
-          const codes = new Set();
-          for (const quote of docAnn.quotes) {
-            for (const code of quote.annotations || []) codes.add(code);
+        const coverage = {};
+        for (const code of state.codebook) {
+          const docIds = new Set();
+          for (const example of code.example_quotes || []) {
+            const docId = example.doc_id || code.created_from_doc;
+            if (docId && example.verified !== false) docIds.add(docId);
           }
-          for (const code of codes) codeToDocs[code] = (codeToDocs[code] || 0) + 1;
+          for (const docAnn of state.annotations) {
+            for (const quote of docAnn.quotes || []) {
+              const hasCodeId = (quote.code_ids || []).includes(code.code_id);
+              const hasCodeName = (quote.annotations || []).includes(code.name);
+              if (hasCodeId || hasCodeName) docIds.add(docAnn.id);
+            }
+          }
+          const pct = Math.round((docIds.size / total) * 100);
+          coverage[code.code_id] = pct;
+          coverage[code.name] = pct;
         }
-        return Object.fromEntries(Object.entries(codeToDocs).map(([code, count]) => [code, Math.round((count / total) * 100)]));
+        return coverage;
       }
 
       function addDocuments(docs) {
@@ -572,13 +607,16 @@
       function projectStateFromPayload(payload) {
         const currentPreferences = clone(state.preferences);
         const project = payload.project || payload;
+        const projectPreferences = project.preferences || payload.preferences || {};
+        const preferences = {
+          ...currentPreferences,
+          ...projectPreferences,
+          apiKey: currentPreferences.apiKey
+        };
+        migrateLegacyDefaultPrompts(preferences, projectPreferences);
         const loaded = {
           ...clone(defaults),
-          preferences: {
-            ...currentPreferences,
-            ...(project.preferences || payload.preferences || {}),
-            apiKey: currentPreferences.apiKey
-          },
+          preferences,
           docs: normalizeLoadedDocs(project.docs || payload.docs || payload.data || []),
           selectedDocId: project.selectedDocId || payload.selectedDocId || null,
           codebook: (payload.codebook || project.codebook || []).map((code, index) => normalizeCode(code, index)),
@@ -893,7 +931,7 @@
           {
             role: "system",
             content:
-              "You are Agent 1, Document scout. Return only JSON that matches the schema. You must not use or ask for the current codebook. Every supporting quote must be exact text from the document."
+              "You are Agent 1, Document scout. Return only JSON that matches the schema. You must not use or ask for the current codebook. Every supporting quote must be copied exactly from document_text as one contiguous substring. Do not alter spelling, punctuation, capitalization, spacing, or wording."
           },
           {
             role: "user",
@@ -916,7 +954,7 @@
           {
             role: "system",
             content:
-              "You are Agent 2, Codebook applier. Return only JSON that matches the schema. You cannot create codes. Quotes must be exact substrings from the document. If a code has no quote, put its code_id in codes_with_no_instance."
+              "You are Agent 2, Codebook applier. Return only JSON that matches the schema. You cannot create codes. Every quote must be copied exactly from document_text as one contiguous substring. Do not alter spelling, punctuation, capitalization, spacing, or wording. If a code has no quote, put its code_id in codes_with_no_instance."
           },
           {
             role: "user",
@@ -930,7 +968,8 @@
                 required_behavior: [
                   "Apply only listed code_id values.",
                   "Return exact verbatim quotes only.",
-                  "Do not paraphrase, shorten, merge, or add ellipses.",
+                  "Each quote must pass document_text.includes(quote).",
+                  "Do not paraphrase, clean up, shorten by rewriting, merge separate passages, or add ellipses.",
                   "Include positive and negative cases when they match the code definition."
                 ]
               },
@@ -946,7 +985,7 @@
           {
             role: "system",
             content:
-              "You are Agent 3, Novelty detector. Return only JSON that matches the schema. Compare scout findings with the current codebook. Do not create active codes."
+              "You are Agent 3, Novelty detector. Return only JSON that matches the schema. Compare scout findings with the current codebook. Do not create active codes. Evidence quotes must come from the verified scout quotes without changes."
           },
           {
             role: "user",
@@ -979,6 +1018,7 @@
             role: "user",
             content: JSON.stringify(
               {
+                merge_instruction: state.preferences.mergePrompt,
                 candidates,
                 current_codebook: currentCodebookForModel(),
                 merge_rule: [
@@ -1748,7 +1788,7 @@
         render();
       });
 
-      [els.apiKey, els.modelSelect, els.temperature, els.verbosity, els.reasoning, els.maxQuotes, els.lens, els.codebookPrompt, els.refinePrompt, els.annotationPrompt].forEach(
+      [els.apiKey, els.modelSelect, els.temperature, els.verbosity, els.reasoning, els.maxQuotes, els.lens, els.codebookPrompt, els.refinePrompt, els.mergePrompt, els.annotationPrompt].forEach(
         (el) => el.addEventListener("change", () => {
           readPreferences();
           saveState("Preferences saved.");

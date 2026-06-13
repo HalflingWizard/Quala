@@ -8,7 +8,7 @@ It helps a researcher build a codebook over a queue of datapoints, annotate exac
 
 - Add datapoints by pasting text or opening local TXT and DOCX files.
 - Store an OpenAI API key in the browser and load available models.
-- Edit the study lens, codebook prompt, refinement prompt, and annotation prompt.
+- Edit the study lens, scout prompt, novelty prompt, merge reviewer prompt, and applier prompt.
 - Run a document scout that finds possible new concepts without seeing the codebook.
 - Run a codebook applier that can only apply existing active codes.
 - Process all queued datapoints with one queue run.
@@ -16,6 +16,7 @@ It helps a researcher build a codebook over a queue of datapoints, annotate exac
 - Run a novelty detector and merge reviewer before any codebook change.
 - Add proposed codes to the codebook as needing human review, then send new codes and merge decisions to Human review before they become active.
 - Mark codes as active, dormant, merged, rejected, candidate, or needing review. Codes are not deleted during the document loop.
+- Calculate codebook coverage from verified codebook evidence and verified annotation links.
 - Annotate exact verbatim quotes with code names while preserving stable code IDs.
 - Save snapshots before and after processing so a researcher can undo mistakes.
 - Save an audit log for quote checks, review requests, and codebook changes.
@@ -43,7 +44,7 @@ node smoke-test.js
 2. Go to Preferences.
 3. Add an OpenAI API key.
 4. Load models or use the default model value.
-5. Edit the study lens, scout prompt, novelty prompt, and applier prompt if needed.
+5. Edit the study lens, scout prompt, novelty prompt, merge reviewer prompt, and applier prompt if needed.
 6. Go to Workspace.
 7. Add datapoints by paste or open TXT and DOCX files.
 8. Process the queue.

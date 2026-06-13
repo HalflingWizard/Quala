@@ -97,6 +97,10 @@ if (!elements.newProjectBtn || !elements.loadProjectBtn || !elements.projectInpu
   throw new Error("Project controls are not available.");
 }
 
+if (!elements.mergePrompt) {
+  throw new Error("Merge reviewer prompt is not available.");
+}
+
 if (!elements.processQueueBtn || html.includes("processCurrentBtn") || html.includes("processNextBtn")) {
   throw new Error("Workspace processing controls were not simplified.");
 }
@@ -204,6 +208,10 @@ if (!candidate || candidate.status !== "needs_human_review") {
 }
 if (!candidatePayload.review_items.some((item) => item.candidate_code_id === candidate.code_id)) {
   throw new Error("Review item was not linked to the pending code.");
+}
+const coverage = context.computeCoverage();
+if (!coverage[candidate.code_id] || coverage[candidate.code_id] <= 0) {
+  throw new Error("Coverage did not count verified codebook evidence.");
 }
 
 const loadedProject = context.projectStateFromPayload({
