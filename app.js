@@ -73,7 +73,6 @@
         newText: $("newText"),
         processCurrentBtn: $("processCurrentBtn"),
         processNextBtn: $("processNextBtn"),
-        progressBar: $("progressBar"),
         progressMascot: $("progressMascot"),
         queuePill: $("queuePill"),
         reasoning: $("reasoning"),
@@ -124,11 +123,33 @@
         els.activityLog.textContent = message;
       }
 
-      function setProgress(value) {
-        const percent = Math.max(0, Math.min(100, value));
-        els.progressBar.style.width = `${percent}%`;
+      let shownProgress = 0;
+      let progressFrame = null;
+
+      function drawProgress(percent) {
+        shownProgress = percent;
         els.progressMascot.style.setProperty("--progress", `${percent}%`);
         els.progressMascot.classList.toggle("active", percent > 0 && percent < 100);
+      }
+
+      function setProgress(value) {
+        const percent = Math.max(0, Math.min(100, value));
+        if (progressFrame) cancelAnimationFrame(progressFrame);
+        if (percent === 0 || typeof requestAnimationFrame !== "function") {
+          drawProgress(percent);
+          return;
+        }
+        const start = shownProgress;
+        const change = percent - start;
+        const duration = 650;
+        const startTime = performance.now();
+        const step = (now) => {
+          const elapsed = Math.min(1, (now - startTime) / duration);
+          const eased = 1 - Math.pow(1 - elapsed, 3);
+          drawProgress(start + change * eased);
+          if (elapsed < 1) progressFrame = requestAnimationFrame(step);
+        };
+        progressFrame = requestAnimationFrame(step);
       }
 
       function selectedDoc() {
