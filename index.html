@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Quala</title>
+    <link rel="icon" type="image/png" href="assets/quala-koala.png" />
     <style>
       :root {
         --bg: #f5f7fb;
@@ -384,6 +385,37 @@
         transition: width 0.2s ease;
       }
 
+      .progressMascot {
+        --progress: 0%;
+        display: none;
+        width: 84px;
+        height: 84px;
+        margin: 0 auto 6px;
+        border-radius: 50%;
+        padding: 5px;
+        background: conic-gradient(var(--accent) var(--progress), #e2e8f0 0);
+      }
+
+      .progressMascot.active {
+        display: grid;
+        place-items: center;
+      }
+
+      .progressMascotInner {
+        display: grid;
+        width: 100%;
+        height: 100%;
+        place-items: center;
+        border-radius: 50%;
+        background: var(--panel);
+      }
+
+      .progressMascot img {
+        width: 62px;
+        height: 62px;
+        object-fit: contain;
+      }
+
       .modalBackdrop {
         position: fixed;
         inset: 0;
@@ -463,6 +495,11 @@
         </div>
         <hr />
         <div class="stack small">
+          <div class="progressMascot" id="progressMascot" aria-hidden="true">
+            <div class="progressMascotInner">
+              <img src="assets/quala-koala-working.webp" alt="" />
+            </div>
+          </div>
           <div class="progress"><div class="bar" id="progressBar"></div></div>
           <div id="statusLine" class="muted">Ready.</div>
           <div id="activityLog" class="log tiny">No run yet.</div>

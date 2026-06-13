@@ -74,6 +74,7 @@
         processCurrentBtn: $("processCurrentBtn"),
         processNextBtn: $("processNextBtn"),
         progressBar: $("progressBar"),
+        progressMascot: $("progressMascot"),
         queuePill: $("queuePill"),
         reasoning: $("reasoning"),
         refinePrompt: $("refinePrompt"),
@@ -124,7 +125,10 @@
       }
 
       function setProgress(value) {
-        els.progressBar.style.width = `${Math.max(0, Math.min(100, value))}%`;
+        const percent = Math.max(0, Math.min(100, value));
+        els.progressBar.style.width = `${percent}%`;
+        els.progressMascot.style.setProperty("--progress", `${percent}%`);
+        els.progressMascot.classList.toggle("active", percent > 0 && percent < 100);
       }
 
       function selectedDoc() {
