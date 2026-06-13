@@ -97,6 +97,10 @@ if (!elements.newProjectBtn || !elements.loadProjectBtn || !elements.projectInpu
   throw new Error("Project controls are not available.");
 }
 
+if (!elements.processQueueBtn || html.includes("processCurrentBtn") || html.includes("processNextBtn")) {
+  throw new Error("Workspace processing controls were not simplified.");
+}
+
 if (typeof context.readDocx !== "function") {
   throw new Error("DOCX reader did not load.");
 }
@@ -174,6 +178,32 @@ if (
   !Array.isArray(exportPayload.project.docs)
 ) {
   throw new Error("Export payload is missing workflow arrays.");
+}
+
+context.buildHumanReviewPacket(
+  { id: "D2" },
+  {
+    novelty_decisions: [
+      {
+        scout_code_name: "New concern",
+        decision: "new_code",
+        matched_code_id: "",
+        suggested_code: { name: "New concern", definition: "A new concern." },
+        evidence_quotes: ["beta"],
+        rationale: "Verified scout evidence."
+      }
+    ]
+  },
+  { merge_review: [] },
+  verification
+);
+const candidatePayload = context.exportPayload();
+const candidate = candidatePayload.codebook.find((code) => code.name === "New concern");
+if (!candidate || candidate.status !== "needs_human_review") {
+  throw new Error("New scout code was not added as a pending codebook item.");
+}
+if (!candidatePayload.review_items.some((item) => item.candidate_code_id === candidate.code_id)) {
+  throw new Error("Review item was not linked to the pending code.");
 }
 
 const loadedProject = context.projectStateFromPayload({

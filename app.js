@@ -77,8 +77,7 @@
         newSource: $("newSource"),
         newText: $("newText"),
         newProjectBtn: $("newProjectBtn"),
-        processCurrentBtn: $("processCurrentBtn"),
-        processNextBtn: $("processNextBtn"),
+        processQueueBtn: $("processQueueBtn"),
         progressMascot: $("progressMascot"),
         projectInput: $("projectInput"),
         queuePill: $("queuePill"),
@@ -176,8 +175,7 @@
       }
 
       function setProcessing(active) {
-        els.processCurrentBtn.disabled = active;
-        els.processNextBtn.disabled = active;
+        els.processQueueBtn.disabled = active;
         els.stopProcessBtn.disabled = !active;
       }
 
@@ -879,6 +877,17 @@
           }));
       }
 
+      function currentCodebookForModel() {
+        return state.codebook
+          .filter((code) => code.status !== "rejected" && code.status !== "merged")
+          .map((code) => ({
+            code_id: code.code_id,
+            name: code.name,
+            definition: code.definition,
+            status: code.status
+          }));
+      }
+
       function buildScoutPrompt(doc) {
         return [
           {
@@ -946,7 +955,7 @@
                 doc_id: doc.id,
                 novelty_instruction: state.preferences.refinePrompt,
                 scout_codes: scoutOutput.scout_codes || [],
-                current_codebook: codebookForModel(),
+                current_codebook: currentCodebookForModel(),
                 allowed_decisions: ["new_code", "already_covered", "possible_merge", "needs_human_review"]
               },
               null,
@@ -971,7 +980,7 @@
             content: JSON.stringify(
               {
                 candidates,
-                current_codebook: codebookForModel(),
+                current_codebook: currentCodebookForModel(),
                 merge_rule: [
                   "same meaning",
                   "same use case",
@@ -1073,61 +1082,81 @@
         return parts.join("");
       }
 
-      async function processDoc(doc) {
-        if (!doc) return;
+      async function processQueue() {
         if (activeRun) throw new Error("Processing is already running.");
+        const docs = state.docs.filter((doc) => doc.status !== "coded");
+        if (!docs.length) {
+          setStatus("No queued datapoints to process.");
+          log("All datapoints are already coded.");
+          return;
+        }
         activeRun = { controller: new AbortController(), stopped: false };
         setProcessing(true);
         const signal = activeRun.controller.signal;
         try {
-          setProgress(8);
-          setStatus(`Processing ${doc.id}.`);
-          log("Running document scout.");
-          createSnapshot(`Before processing ${doc.id}`);
-          const scoutOutput = await callOpenAI(buildScoutPrompt(doc), scoutSchema(), signal);
-          ensureProcessingActive(signal);
-          setProgress(28);
-          const hasCodebook = codebookForModel().length > 0;
-          log(hasCodebook ? "Running codebook applier." : "No active codebook yet. Skipping codebook applier.");
-          const applierOutput = hasCodebook
-            ? await callOpenAI(buildApplierPrompt(doc), applierSchema(), signal)
-            : { doc_id: doc.id, applied_codes: [], codes_with_no_instance: [] };
-          ensureProcessingActive(signal);
-          setProgress(46);
-          log("Checking exact quotes.");
-          const verification = evidenceAuditor(doc.text, collectQuotes(scoutOutput, applierOutput));
-          const verifiedScout = removeFailedScoutQuotes(scoutOutput, verification);
-          const verifiedApplier = removeFailedApplierQuotes(applierOutput, verification);
-          logVerification(doc.id, verification);
-          applyAnnotationResult(doc, verifiedApplier);
-          setProgress(62);
-          log("Running novelty detector.");
-          const noveltyOutput = await callOpenAI(buildNoveltyPrompt(doc, verifiedScout), noveltySchema(), signal);
-          ensureProcessingActive(signal);
-          const verifiedNovelty = removeFailedNoveltyQuotes(noveltyOutput, verification);
-          setProgress(78);
-          const needsMergeReview = (verifiedNovelty.novelty_decisions || []).some((item) =>
-            ["new_code", "possible_merge", "needs_human_review"].includes(item.decision)
-          );
-          log(needsMergeReview ? "Running merge reviewer." : "No merge review needed.");
-          const mergeOutput = needsMergeReview ? await callOpenAI(buildMergePrompt(verifiedNovelty), mergeSchema(), signal) : { merge_review: [] };
-          ensureProcessingActive(signal);
-          buildHumanReviewPacket(doc, verifiedNovelty, mergeOutput, verification);
-          updateDormantStatuses();
-          doc.status = "coded";
-          addAuditLog({
-            doc_id: doc.id,
-            event_type: "document_processed",
-            reason: "Scout, applier, verifier, novelty detector, merge reviewer, and review packet completed."
-          });
-          createSnapshot(`After processing ${doc.id}`);
+          createSnapshot("Before processing queue");
+          for (let index = 0; index < docs.length; index += 1) {
+            ensureProcessingActive(signal);
+            state.selectedDocId = docs[index].id;
+            await processDoc(docs[index], signal, index, docs.length);
+            render();
+          }
+          createSnapshot("After processing queue");
           setProgress(100);
-          log(`Processed ${doc.id}. Review any open items before adding new active codes.`);
+          setStatus("Queue processed.");
+          log("Queue processed. Review pending codebook changes before using those codes as active codes.");
           render();
         } finally {
           activeRun = null;
           setProcessing(false);
         }
+      }
+
+      async function processDoc(doc, signal, index, total) {
+        const baseProgress = Math.round((index / Math.max(1, total)) * 100);
+        const span = Math.round(100 / Math.max(1, total));
+        const stepProgress = (value) => setProgress(baseProgress + Math.round((value / 100) * span));
+        stepProgress(8);
+        setStatus(`Processing ${index + 1} of ${total}. ${doc.id}.`);
+        log("Running document scout.");
+        const scoutOutput = await callOpenAI(buildScoutPrompt(doc), scoutSchema(), signal);
+        ensureProcessingActive(signal);
+        stepProgress(28);
+        const hasCodebook = codebookForModel().length > 0;
+        log(hasCodebook ? "Running codebook applier." : "No active codebook yet. Skipping codebook applier.");
+        const applierOutput = hasCodebook
+          ? await callOpenAI(buildApplierPrompt(doc), applierSchema(), signal)
+          : { doc_id: doc.id, applied_codes: [], codes_with_no_instance: [] };
+        ensureProcessingActive(signal);
+        stepProgress(46);
+        log("Checking exact quotes.");
+        const verification = evidenceAuditor(doc.text, collectQuotes(scoutOutput, applierOutput));
+        const verifiedScout = removeFailedScoutQuotes(scoutOutput, verification);
+        const verifiedApplier = removeFailedApplierQuotes(applierOutput, verification);
+        logVerification(doc.id, verification);
+        applyAnnotationResult(doc, verifiedApplier);
+        stepProgress(62);
+        log("Running novelty detector.");
+        const noveltyOutput = await callOpenAI(buildNoveltyPrompt(doc, verifiedScout), noveltySchema(), signal);
+        ensureProcessingActive(signal);
+        const verifiedNovelty = removeFailedNoveltyQuotes(noveltyOutput, verification);
+        stepProgress(78);
+        const needsMergeReview = (verifiedNovelty.novelty_decisions || []).some((item) =>
+          ["new_code", "possible_merge", "needs_human_review"].includes(item.decision)
+        );
+        log(needsMergeReview ? "Running merge reviewer." : "No merge review needed.");
+        const mergeOutput = needsMergeReview ? await callOpenAI(buildMergePrompt(verifiedNovelty), mergeSchema(), signal) : { merge_review: [] };
+        ensureProcessingActive(signal);
+        buildHumanReviewPacket(doc, verifiedNovelty, mergeOutput, verification);
+        updateDormantStatuses();
+        doc.status = "coded";
+        addAuditLog({
+          doc_id: doc.id,
+          event_type: "document_processed",
+          reason: "Scout, applier, verifier, novelty detector, merge reviewer, and review packet completed."
+        });
+        stepProgress(100);
+        log(`Processed ${doc.id}.`);
       }
 
       function ensureProcessingActive(signal) {
@@ -1269,10 +1298,12 @@
           if (!item.evidence_quotes?.length) continue;
           const merge = mergeByName.get((item.suggested_code?.name || item.scout_code_name || "").toLowerCase());
           const type = merge?.recommendation === "merge" ? "merge_decision" : "new_code";
+          const candidateCodeId = type === "new_code" ? ensureCandidateCode(doc, item, verification) : "";
           const reviewItem = {
             id: uid(),
             status: "open",
             type,
+            candidate_code_id: candidateCodeId,
             doc_id: doc.id,
             scout_code_name: item.scout_code_name,
             suggested_code: item.suggested_code,
@@ -1293,6 +1324,47 @@
             reason: `${added} codebook change${added === 1 ? "" : "s"} need human review.`
           });
         }
+      }
+
+      function ensureCandidateCode(doc, noveltyItem, verification) {
+        const name = String(noveltyItem.suggested_code?.name || noveltyItem.scout_code_name || "").trim();
+        if (!name) return "";
+        const existing = state.codebook.find((code) => code.name.toLowerCase() === name.toLowerCase());
+        if (existing) {
+          if (existing.status === "candidate") existing.status = "needs_human_review";
+          return existing.code_id;
+        }
+        const codeId = nextCodeId();
+        const verifiedQuotes = verification.verified_quotes.filter((quote) => (noveltyItem.evidence_quotes || []).includes(quote.quote));
+        state.codebook.push({
+          id: uid(),
+          code_id: codeId,
+          name,
+          definition: String(noveltyItem.suggested_code?.definition || "").trim(),
+          status: "needs_human_review",
+          created_from_doc: doc.id,
+          example_quotes: verifiedQuotes.map((quote) => ({
+            doc_id: doc.id,
+            quote: quote.quote,
+            verified: quote.verified,
+            start_char: quote.start_char,
+            end_char: quote.end_char
+          })),
+          history: [
+            {
+              event: "proposed",
+              doc_id: doc.id,
+              reason: noveltyItem.rationale || "Proposed by novelty detector."
+            }
+          ]
+        });
+        addAuditLog({
+          doc_id: doc.id,
+          event_type: "candidate_code_added",
+          code_id: codeId,
+          reason: `Candidate code ${name} needs human review.`
+        });
+        return codeId;
       }
 
       function nextCodeId() {
@@ -1342,6 +1414,32 @@
           render();
           return;
         }
+        const candidate = state.codebook.find((code) => code.code_id === item.candidate_code_id);
+        if (candidate) {
+          candidate.name = item.suggested_code.name;
+          candidate.definition = item.suggested_code.definition;
+          candidate.status = "active";
+          candidate.history = [
+            ...(candidate.history || []),
+            {
+              event: "approved",
+              doc_id: item.doc_id,
+              reason: item.rationale || "Approved from human review."
+            }
+          ];
+          item.status = "approved";
+          item.decided_at = new Date().toISOString();
+          addAuditLog({
+            doc_id: item.doc_id,
+            event_type: "new_code_approved",
+            code_id: candidate.code_id,
+            reason: `Human approved ${candidate.name}.`,
+            approved_by: "human"
+          });
+          createSnapshot(`Approved ${candidate.name}`);
+          render();
+          return;
+        }
         const codeId = nextCodeId();
         state.codebook.push({
           id: uid(),
@@ -1381,6 +1479,18 @@
       function rejectReviewItem(id) {
         const item = state.reviewItems.find((review) => review.id === id);
         if (!item || item.status !== "open") return;
+        const candidate = state.codebook.find((code) => code.code_id === item.candidate_code_id);
+        if (candidate && candidate.status === "needs_human_review") {
+          candidate.status = "rejected";
+          candidate.history = [
+            ...(candidate.history || []),
+            {
+              event: "rejected",
+              doc_id: item.doc_id,
+              reason: "Rejected by human review."
+            }
+          ];
+        }
         item.status = "rejected";
         item.decided_at = new Date().toISOString();
         addAuditLog({
@@ -1559,21 +1669,9 @@
         render();
       });
 
-      els.processCurrentBtn.addEventListener("click", async () => {
+      els.processQueueBtn.addEventListener("click", async () => {
         try {
-          await processDoc(selectedDoc());
-        } catch (err) {
-          setProgress(0);
-          setStatus(err.message === "Processing stopped." ? "Processing stopped." : "Processing failed.");
-          log(err.message);
-        }
-      });
-
-      els.processNextBtn.addEventListener("click", async () => {
-        try {
-          const next = state.docs.find((doc) => doc.status !== "coded") || selectedDoc();
-          state.selectedDocId = next?.id || null;
-          await processDoc(next);
+          await processQueue();
         } catch (err) {
           setProgress(0);
           setStatus(err.message === "Processing stopped." ? "Processing stopped." : "Processing failed.");

@@ -26,6 +26,7 @@ Keep application logic in `app.js`.
 - Avoid broad rewrites.
 - Do not introduce dependencies without a clear need.
 - Keep UI styling close to the existing `analysis_tools` family, light panels, blue accent, compact tables, and simple controls.
+- When the user says to fix an issue with a number, include that issue number in the commit message so GitHub links it.
 
 ## Manual Checks
 
