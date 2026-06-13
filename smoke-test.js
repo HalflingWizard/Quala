@@ -109,6 +109,10 @@ if (!elements.mergePrompt) {
   throw new Error("Merge reviewer prompt is not available.");
 }
 
+if (!elements.auditDocFilter || !elements.auditSortBtn) {
+  throw new Error("Audit filter or sort controls are not available.");
+}
+
 if (!elements.processQueueBtn || html.includes("processCurrentBtn") || html.includes("processNextBtn")) {
   throw new Error("Workspace processing controls were not simplified.");
 }
@@ -221,6 +225,20 @@ if (!candidatePayload.review_items.some((item) => item.candidate_code_id === can
 const coverage = context.computeCoverage();
 if (!coverage[candidate.code_id] || coverage[candidate.code_id] <= 0) {
   throw new Error("Coverage did not count verified codebook evidence.");
+}
+
+context.addAuditLog({
+  doc_id: "D1",
+  event_type: "document_scout",
+  title: "Document scout",
+  summary: "One concept found.",
+  stats: { concepts_found: 1 },
+  input: { prompt: ["test prompt"] },
+  output: { scout_codes: [] }
+});
+const auditPayload = context.exportPayload().audit_log.find((entry) => entry.title === "Document scout");
+if (!auditPayload || auditPayload.stats.concepts_found !== 1 || !auditPayload.input || !auditPayload.output) {
+  throw new Error("Structured audit event was not saved.");
 }
 
 const loadedProject = context.projectStateFromPayload({

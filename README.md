@@ -19,7 +19,7 @@ It helps a researcher build a codebook over a queue of datapoints, annotate exac
 - Calculate codebook coverage from verified codebook evidence and verified annotation links.
 - Annotate exact verbatim quotes with code names while preserving stable code IDs.
 - Save snapshots before and after processing so a researcher can undo mistakes.
-- Save an audit log for quote checks, review requests, and codebook changes.
+- Save an audit log for each document, with filter, time sort, stage summaries, and expandable full prompts and outputs.
 - Export JSON with a top level `data` array and an `annotation` field for compatibility with `arazilab/analysis_tools`.
 
 ## Run
@@ -49,7 +49,7 @@ node smoke-test.js
 7. Add datapoints by paste or open TXT and DOCX files.
 8. Process the queue.
 9. Open Human review and approve or reject suggested codebook changes. Proposed codes stay inactive until approval.
-10. Review the codebook, annotations, and audit log.
+10. Review the codebook, annotations, and audit log. Filter the audit by document when you need one document's processing history.
 11. Edit or restore from History when needed.
 12. Export JSON.
 

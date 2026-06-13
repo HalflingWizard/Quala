@@ -63,6 +63,7 @@
         annotationList: $("annotationList"),
         annotationPrompt: $("annotationPrompt"),
         apiKey: $("apiKey"),
+        auditDocFilter: $("auditDocFilter"),
         clearDocsBtn: $("clearDocsBtn"),
         codebookPrompt: $("codebookPrompt"),
         codebookRows: $("codebookRows"),
@@ -105,6 +106,7 @@
         refinePrompt: $("refinePrompt"),
         reviewList: $("reviewList"),
         auditList: $("auditList"),
+        auditSortBtn: $("auditSortBtn"),
         saveBtn: $("saveBtn"),
         saveCodeBtn: $("saveCodeBtn"),
         snapshotBtn: $("snapshotBtn"),
@@ -220,6 +222,8 @@
       let shownProgress = 0;
       let progressFrame = null;
       let activeRun = null;
+      let auditDocFilter = "all";
+      let auditSortDescending = true;
 
       function drawProgress(percent) {
         shownProgress = percent;
@@ -398,28 +402,85 @@
       }
 
       function renderAudit() {
-        if (!els.auditList) return;
+        if (!els.auditList || !els.auditDocFilter) return;
+        renderAuditControls();
         els.auditList.innerHTML = "";
-        if (!state.auditLog.length) {
+        const entries = filteredAuditEntries();
+        if (!entries.length) {
           els.auditList.innerHTML = `<div class="item muted small">No audit events yet.</div>`;
           return;
         }
-        state.auditLog
-          .slice()
-          .reverse()
-          .forEach((entry) => {
+        entries.forEach((entry) => {
             const div = document.createElement("div");
             div.className = "item";
+            const stats = entry.stats || legacyAuditStats(entry);
+            const statsHtml = Object.entries(stats)
+              .map(([key, value]) => `<span class="pill">${escapeHtml(humanizeKey(key))} ${escapeHtml(value)}</span>`)
+              .join("");
+            const detailPayload = {
+              summary: entry.summary || entry.reason || "",
+              stats,
+              input: entry.input || null,
+              output: entry.output || null,
+              details: entry.details || null
+            };
             div.innerHTML = `
               <div class="itemTitle">
-                <span>${escapeHtml(entry.event_type)}</span>
+                <span>${escapeHtml(entry.title || humanizeKey(entry.event_type))}</span>
                 <span class="pill">${escapeHtml(entry.doc_id || "system")}</span>
               </div>
               <div class="muted tiny">${escapeHtml(entry.timestamp)}</div>
-              <p class="small" style="margin-top: 8px">${escapeHtml(entry.reason || "")}</p>
+              <p class="small" style="margin-top: 8px">${escapeHtml(entry.summary || entry.reason || "")}</p>
+              <div class="row" style="margin-top: 8px">${statsHtml}</div>
+              <details class="auditDetails">
+                <summary>Show full details</summary>
+                <pre>${escapeHtml(JSON.stringify(detailPayload, null, 2))}</pre>
+              </details>
             `;
             els.auditList.appendChild(div);
           });
+      }
+
+      function renderAuditControls() {
+        const docIds = ["all", ...state.docs.map((doc) => doc.id)];
+        const auditOnlyDocIds = state.auditLog.map((entry) => entry.doc_id).filter(Boolean);
+        for (const docId of auditOnlyDocIds) {
+          if (!docIds.includes(docId)) docIds.push(docId);
+        }
+        if (!docIds.includes(auditDocFilter)) auditDocFilter = "all";
+        els.auditDocFilter.innerHTML = "";
+        for (const docId of docIds) {
+          const option = document.createElement("option");
+          option.value = docId;
+          option.textContent = docId === "all" ? "All documents" : docId;
+          option.selected = docId === auditDocFilter;
+          els.auditDocFilter.appendChild(option);
+        }
+        els.auditSortBtn.textContent = auditSortDescending ? "Time sort descending" : "Time sort ascending";
+      }
+
+      function filteredAuditEntries() {
+        return state.auditLog
+          .filter((entry) => auditDocFilter === "all" || entry.doc_id === auditDocFilter)
+          .slice()
+          .sort((a, b) => {
+            const aTime = Date.parse(a.timestamp || "") || 0;
+            const bTime = Date.parse(b.timestamp || "") || 0;
+            return auditSortDescending ? bTime - aTime : aTime - bTime;
+          });
+      }
+
+      function legacyAuditStats(entry) {
+        const stats = {};
+        if (entry.code_id) stats.code_id = entry.code_id;
+        if (entry.approved_by) stats.approved_by = entry.approved_by;
+        return stats;
+      }
+
+      function humanizeKey(value) {
+        return String(value || "")
+          .replaceAll("_", " ")
+          .replace(/\b\w/g, (letter) => letter.toUpperCase());
       }
 
       function renderAnnotations() {
@@ -1166,40 +1227,107 @@
         stepProgress(8);
         setStatus(`Processing ${index + 1} of ${total}. ${doc.id}.`);
         log("Running document scout.");
-        const scoutOutput = await callOpenAI(buildScoutPrompt(doc), scoutSchema(), signal);
+        const scoutPrompt = buildScoutPrompt(doc);
+        const scoutOutput = await callOpenAI(scoutPrompt, scoutSchema(), signal);
+        addAuditLog({
+          doc_id: doc.id,
+          event_type: "document_scout",
+          title: "Document scout",
+          summary: summarizeScoutOutput(scoutOutput),
+          stats: scoutStats(scoutOutput),
+          input: { prompt: scoutPrompt },
+          output: scoutOutput
+        });
         ensureProcessingActive(signal);
         stepProgress(28);
         const hasCodebook = codebookForModel().length > 0;
         log(hasCodebook ? "Running codebook applier." : "No active codebook yet. Skipping codebook applier.");
+        const applierPrompt = hasCodebook ? buildApplierPrompt(doc) : null;
         const applierOutput = hasCodebook
-          ? await callOpenAI(buildApplierPrompt(doc), applierSchema(), signal)
+          ? await callOpenAI(applierPrompt, applierSchema(), signal)
           : { doc_id: doc.id, applied_codes: [], codes_with_no_instance: [] };
+        addAuditLog({
+          doc_id: doc.id,
+          event_type: "codebook_applier",
+          title: "Codebook applier",
+          summary: hasCodebook ? summarizeApplierOutput(applierOutput) : "Skipped because there were no active codebook entries.",
+          stats: applierStats(applierOutput, codebookForModel().length),
+          input: hasCodebook ? { prompt: applierPrompt } : { reason: "No active codebook entries." },
+          output: applierOutput
+        });
         ensureProcessingActive(signal);
         stepProgress(46);
         log("Checking exact quotes.");
-        const verification = evidenceAuditor(doc.text, collectQuotes(scoutOutput, applierOutput));
+        const allQuotes = collectQuotes(scoutOutput, applierOutput);
+        const verification = evidenceAuditor(doc.text, allQuotes);
         const verifiedScout = removeFailedScoutQuotes(scoutOutput, verification);
         const verifiedApplier = removeFailedApplierQuotes(applierOutput, verification);
-        logVerification(doc.id, verification);
+        addAuditLog({
+          doc_id: doc.id,
+          event_type: "evidence_auditor",
+          title: "Evidence auditor",
+          summary: `${verification.verified_quotes.length} quotes accepted. ${verification.failed_quotes.length} quotes rejected.`,
+          stats: evidenceStats(allQuotes, verification),
+          input: { quotes: allQuotes },
+          output: verification
+        });
         applyAnnotationResult(doc, verifiedApplier);
         stepProgress(62);
         log("Running novelty detector.");
-        const noveltyOutput = await callOpenAI(buildNoveltyPrompt(doc, verifiedScout), noveltySchema(), signal);
+        const noveltyPrompt = buildNoveltyPrompt(doc, verifiedScout);
+        const noveltyOutput = await callOpenAI(noveltyPrompt, noveltySchema(), signal);
         ensureProcessingActive(signal);
         const verifiedNovelty = removeFailedNoveltyQuotes(noveltyOutput, verification, verifiedScout);
+        addAuditLog({
+          doc_id: doc.id,
+          event_type: "novelty_detector",
+          title: "Novelty detector",
+          summary: summarizeNoveltyOutput(verifiedNovelty),
+          stats: noveltyStats(verifiedNovelty),
+          input: {
+            prompt: noveltyPrompt,
+            scout_output: verifiedScout,
+            current_codebook: currentCodebookForModel()
+          },
+          output: verifiedNovelty
+        });
         stepProgress(78);
         const needsMergeReview = (verifiedNovelty.novelty_decisions || []).some((item) =>
           ["new_code", "possible_merge", "needs_human_review"].includes(item.decision)
         );
         log(needsMergeReview ? "Running merge reviewer." : "No merge review needed.");
-        const mergeOutput = needsMergeReview ? await callOpenAI(buildMergePrompt(verifiedNovelty), mergeSchema(), signal) : { merge_review: [] };
+        const mergePrompt = needsMergeReview ? buildMergePrompt(verifiedNovelty) : null;
+        const mergeOutput = needsMergeReview ? await callOpenAI(mergePrompt, mergeSchema(), signal) : { merge_review: [] };
         ensureProcessingActive(signal);
-        buildHumanReviewPacket(doc, verifiedNovelty, mergeOutput, verification);
+        addAuditLog({
+          doc_id: doc.id,
+          event_type: "merge_reviewer",
+          title: "Merge reviewer",
+          summary: needsMergeReview ? summarizeMergeOutput(mergeOutput) : "Skipped because there were no new or similar code decisions.",
+          stats: mergeStats(mergeOutput),
+          input: needsMergeReview ? { prompt: mergePrompt } : { reason: "No new, possible merge, or needs review decisions." },
+          output: mergeOutput
+        });
+        const reviewPacket = buildHumanReviewPacket(doc, verifiedNovelty, mergeOutput, verification);
+        addAuditLog({
+          doc_id: doc.id,
+          event_type: "codebook_update",
+          title: "Codebook update",
+          summary: `${reviewPacket.review_count} review items created. ${reviewPacket.candidate_codes.length} candidate codes added to the codebook.`,
+          stats: codebookUpdateStats(reviewPacket),
+          input: {
+            novelty_output: verifiedNovelty,
+            merge_output: mergeOutput
+          },
+          output: reviewPacket
+        });
         updateDormantStatuses();
         doc.status = "coded";
         addAuditLog({
           doc_id: doc.id,
           event_type: "document_processed",
+          title: "Document complete",
+          summary: "Processing loop completed for this document.",
           reason: "Scout, applier, verifier, novelty detector, merge reviewer, and review packet completed."
         });
         stepProgress(100);
@@ -1208,6 +1336,86 @@
 
       function ensureProcessingActive(signal) {
         if (signal.aborted) throw new Error("Processing stopped.");
+      }
+
+      function scoutStats(output) {
+        const codes = output.scout_codes || [];
+        return {
+          concepts_found: codes.length,
+          supporting_quotes: codes.reduce((sum, code) => sum + (code.supporting_quotes || []).length, 0),
+          high_confidence: codes.filter((code) => code.confidence === "high").length
+        };
+      }
+
+      function summarizeScoutOutput(output) {
+        const stats = scoutStats(output);
+        return `${stats.concepts_found} possible concepts found with ${stats.supporting_quotes} supporting quotes.`;
+      }
+
+      function applierStats(output, activeCodeCount) {
+        const applied = output.applied_codes || [];
+        return {
+          active_codes_checked: activeCodeCount,
+          codes_with_instances: applied.length,
+          quote_instances: applied.reduce((sum, code) => sum + (code.instances || []).length, 0),
+          codes_with_no_instance: (output.codes_with_no_instance || []).length
+        };
+      }
+
+      function summarizeApplierOutput(output) {
+        const stats = applierStats(output, (output.applied_codes || []).length + (output.codes_with_no_instance || []).length);
+        return `${stats.codes_with_instances} codes had instances. ${stats.quote_instances} quote instances returned.`;
+      }
+
+      function evidenceStats(inputQuotes, verification) {
+        return {
+          quotes_checked: inputQuotes.length,
+          quotes_accepted: (verification.verified_quotes || []).length,
+          quotes_rejected: (verification.failed_quotes || []).length
+        };
+      }
+
+      function noveltyStats(output) {
+        const decisions = output.novelty_decisions || [];
+        return {
+          decisions: decisions.length,
+          new_code: decisions.filter((item) => item.decision === "new_code").length,
+          already_covered: decisions.filter((item) => item.decision === "already_covered").length,
+          possible_merge: decisions.filter((item) => item.decision === "possible_merge").length,
+          needs_human_review: decisions.filter((item) => item.decision === "needs_human_review").length
+        };
+      }
+
+      function summarizeNoveltyOutput(output) {
+        const stats = noveltyStats(output);
+        return `${stats.decisions} novelty decisions. ${stats.new_code} new, ${stats.already_covered} covered, ${stats.possible_merge} possible merges.`;
+      }
+
+      function mergeStats(output) {
+        const reviews = output.merge_review || [];
+        return {
+          reviews: reviews.length,
+          merge: reviews.filter((item) => item.recommendation === "merge").length,
+          keep_separate: reviews.filter((item) => item.recommendation === "keep_separate").length,
+          needs_human_review: reviews.filter((item) => item.recommendation === "needs_human_review").length
+        };
+      }
+
+      function summarizeMergeOutput(output) {
+        const stats = mergeStats(output);
+        return `${stats.reviews} merge reviews. ${stats.merge} merge, ${stats.keep_separate} keep separate, ${stats.needs_human_review} need review.`;
+      }
+
+      function codebookUpdateStats(packet) {
+        const byStatus = {};
+        for (const code of packet.candidate_codes || []) {
+          byStatus[code.status] = (byStatus[code.status] || 0) + 1;
+        }
+        return {
+          review_items_created: packet.review_count || 0,
+          candidate_codes_added: (packet.candidate_codes || []).length,
+          ...byStatus
+        };
       }
 
       function collectQuotes(scoutOutput, applierOutput) {
@@ -1365,12 +1573,21 @@
       function buildHumanReviewPacket(doc, noveltyOutput, mergeOutput, verification) {
         const mergeByName = new Map((mergeOutput.merge_review || []).map((item) => [item.candidate_code_name.toLowerCase(), item]));
         let added = 0;
+        const candidateCodes = [];
         for (const item of noveltyOutput.novelty_decisions || []) {
           if (item.decision === "already_covered") continue;
           if (!item.evidence_quotes?.length) continue;
           const merge = mergeByName.get((item.suggested_code?.name || item.scout_code_name || "").toLowerCase());
           const type = merge?.recommendation === "merge" ? "merge_decision" : "new_code";
           const candidateCodeId = type === "new_code" ? ensureCandidateCode(doc, item, verification) : "";
+          const candidateCode = state.codebook.find((code) => code.code_id === candidateCodeId);
+          if (candidateCode) {
+            candidateCodes.push({
+              code_id: candidateCode.code_id,
+              name: candidateCode.name,
+              status: candidateCode.status
+            });
+          }
           const reviewItem = {
             id: uid(),
             status: "open",
@@ -1396,6 +1613,10 @@
             reason: `${added} codebook change${added === 1 ? "" : "s"} need human review.`
           });
         }
+        return {
+          review_count: added,
+          candidate_codes: candidateCodes
+        };
       }
 
       function ensureCandidateCode(doc, noveltyItem, verification) {
@@ -1588,6 +1809,12 @@
           timestamp: new Date().toISOString(),
           doc_id: entry.doc_id || "",
           event_type: entry.event_type,
+          title: entry.title || "",
+          summary: entry.summary || "",
+          stats: entry.stats || {},
+          input: entry.input || null,
+          output: entry.output || null,
+          details: entry.details || null,
           code_id: entry.code_id || "",
           reason: entry.reason || "",
           approved_by: entry.approved_by || ""
@@ -1752,6 +1979,17 @@
       });
 
       els.stopProcessBtn.addEventListener("click", stopProcessing);
+
+      els.auditDocFilter.addEventListener("change", () => {
+        auditDocFilter = els.auditDocFilter.value;
+        renderAudit();
+        persistState();
+      });
+
+      els.auditSortBtn.addEventListener("click", () => {
+        auditSortDescending = !auditSortDescending;
+        renderAudit();
+      });
 
       els.loadModelsBtn.addEventListener("click", async () => {
         try {

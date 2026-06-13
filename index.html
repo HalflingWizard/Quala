@@ -405,6 +405,40 @@
         word-break: break-word;
       }
 
+      .auditControls {
+        display: flex;
+        gap: 10px;
+        align-items: end;
+        flex-wrap: wrap;
+        margin-top: 12px;
+      }
+
+      .auditControls > div {
+        min-width: 220px;
+      }
+
+      .auditDetails {
+        margin-top: 8px;
+      }
+
+      .auditDetails summary {
+        cursor: pointer;
+        color: var(--accent);
+        font-weight: 700;
+      }
+
+      .auditDetails pre {
+        max-height: 360px;
+        overflow: auto;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 10px;
+        background: #0f172a;
+        color: #e5e7eb;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
       .progressMascot {
         --progress: 0%;
         display: none;
@@ -646,6 +680,13 @@
           <div>
             <h2>Audit log</h2>
             <p class="muted small">Quote checks, review requests, and codebook changes are recorded here.</p>
+          </div>
+          <div class="auditControls">
+            <div>
+              <label for="auditDocFilter">Document filter</label>
+              <select id="auditDocFilter"></select>
+            </div>
+            <button id="auditSortBtn">Sort newest first</button>
           </div>
           <div id="auditList" class="list" style="margin-top: 14px"></div>
         </section>
