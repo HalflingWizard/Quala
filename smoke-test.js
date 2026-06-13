@@ -65,6 +65,7 @@ const context = {
   document,
   localStorage,
   TextDecoder,
+  AbortController,
   Blob: function Blob() {},
   URL: {
     createObjectURL() {
@@ -163,6 +164,10 @@ if (scout.scout_codes[0].supporting_quotes.length !== 1 || scout.scout_codes[0].
 const exportPayload = context.exportPayload();
 if (!Array.isArray(exportPayload.data) || !Array.isArray(exportPayload.audit_log) || !Array.isArray(exportPayload.review_items)) {
   throw new Error("Export payload is missing workflow arrays.");
+}
+
+if (!elements.stopProcessBtn || !html.includes('id="stopProcessBtn" class="danger" disabled')) {
+  throw new Error("Stop processing button is missing or enabled while idle.");
 }
 
 console.log("startup ok");

@@ -91,6 +91,7 @@
         statDocs: $("statDocs"),
         statQuotes: $("statQuotes"),
         statusLine: $("statusLine"),
+        stopProcessBtn: $("stopProcessBtn"),
         temperature: $("temperature"),
         textModal: $("textModal"),
         updateDocBtn: $("updateDocBtn"),
@@ -171,8 +172,23 @@
         els.activityLog.textContent = message;
       }
 
+      function setProcessing(active) {
+        els.processCurrentBtn.disabled = active;
+        els.processNextBtn.disabled = active;
+        els.stopProcessBtn.disabled = !active;
+      }
+
+      function stopProcessing() {
+        if (!activeRun) return;
+        activeRun.stopped = true;
+        activeRun.controller.abort();
+        setStatus("Stopping processing.");
+        log("Stopping after the current request is canceled.");
+      }
+
       let shownProgress = 0;
       let progressFrame = null;
+      let activeRun = null;
 
       function drawProgress(percent) {
         shownProgress = percent;
@@ -888,7 +904,7 @@
         };
       }
 
-      async function callOpenAI(input, schema) {
+      async function callOpenAI(input, schema, signal) {
         readPreferences();
         if (!state.preferences.apiKey) throw new Error("Add an OpenAI API key in Preferences.");
         const capabilities = modelCapabilities(state.preferences.model);
@@ -908,14 +924,18 @@
         if (capabilities.reasoning && state.preferences.reasoning) {
           body.reasoning = { effort: state.preferences.reasoning };
         }
-        const response = await fetch("https://api.openai.com/v1/responses", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${state.preferences.apiKey}`,
-            "Content-Type": "application/json"
+        const response = await fetchWithTimeout(
+          "https://api.openai.com/v1/responses",
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${state.preferences.apiKey}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify(body)
           },
-          body: JSON.stringify(body)
-        });
+          signal
+        );
         if (!response.ok) {
           const errText = await response.text();
           throw new Error(`OpenAI request failed ${response.status}. ${errText}`);
@@ -924,6 +944,28 @@
         const text = data.output_text || extractResponseText(data);
         if (!text) throw new Error("The model returned no text.");
         return JSON.parse(text);
+      }
+
+      async function fetchWithTimeout(url, options, signal) {
+        const timeoutMs = 120000;
+        const timeoutController = new AbortController();
+        const timeoutId = setTimeout(() => timeoutController.abort(), timeoutMs);
+        const abortRequest = () => timeoutController.abort();
+        if (signal) {
+          if (signal.aborted) timeoutController.abort();
+          else signal.addEventListener("abort", abortRequest, { once: true });
+        }
+        try {
+          return await fetch(url, { ...options, signal: timeoutController.signal });
+        } catch (error) {
+          if (timeoutController.signal.aborted) {
+            throw new Error(signal?.aborted ? "Processing stopped." : "OpenAI request timed out after 2 minutes.");
+          }
+          throw error;
+        } finally {
+          clearTimeout(timeoutId);
+          if (signal) signal.removeEventListener("abort", abortRequest);
+        }
       }
 
       function extractResponseText(data) {
@@ -938,43 +980,63 @@
 
       async function processDoc(doc) {
         if (!doc) return;
-        setProgress(8);
-        setStatus(`Processing ${doc.id}.`);
-        log("Running document scout.");
-        createSnapshot(`Before processing ${doc.id}`);
-        const scoutOutput = await callOpenAI(buildScoutPrompt(doc), scoutSchema());
-        setProgress(28);
-        log("Running codebook applier.");
-        const applierOutput = await callOpenAI(buildApplierPrompt(doc), applierSchema());
-        setProgress(46);
-        log("Checking exact quotes.");
-        const verification = evidenceAuditor(doc.text, collectQuotes(scoutOutput, applierOutput));
-        const verifiedScout = removeFailedScoutQuotes(scoutOutput, verification);
-        const verifiedApplier = removeFailedApplierQuotes(applierOutput, verification);
-        logVerification(doc.id, verification);
-        applyAnnotationResult(doc, verifiedApplier);
-        setProgress(62);
-        log("Running novelty detector.");
-        const noveltyOutput = await callOpenAI(buildNoveltyPrompt(doc, verifiedScout), noveltySchema());
-        const verifiedNovelty = removeFailedNoveltyQuotes(noveltyOutput, verification);
-        setProgress(78);
-        const needsMergeReview = (verifiedNovelty.novelty_decisions || []).some((item) =>
-          ["new_code", "possible_merge", "needs_human_review"].includes(item.decision)
-        );
-        log(needsMergeReview ? "Running merge reviewer." : "No merge review needed.");
-        const mergeOutput = needsMergeReview ? await callOpenAI(buildMergePrompt(verifiedNovelty), mergeSchema()) : { merge_review: [] };
-        buildHumanReviewPacket(doc, verifiedNovelty, mergeOutput, verification);
-        updateDormantStatuses();
-        doc.status = "coded";
-        addAuditLog({
-          doc_id: doc.id,
-          event_type: "document_processed",
-          reason: "Scout, applier, verifier, novelty detector, merge reviewer, and review packet completed."
-        });
-        createSnapshot(`After processing ${doc.id}`);
-        setProgress(100);
-        log(`Processed ${doc.id}. Review any open items before adding new active codes.`);
-        render();
+        if (activeRun) throw new Error("Processing is already running.");
+        activeRun = { controller: new AbortController(), stopped: false };
+        setProcessing(true);
+        const signal = activeRun.controller.signal;
+        try {
+          setProgress(8);
+          setStatus(`Processing ${doc.id}.`);
+          log("Running document scout.");
+          createSnapshot(`Before processing ${doc.id}`);
+          const scoutOutput = await callOpenAI(buildScoutPrompt(doc), scoutSchema(), signal);
+          ensureProcessingActive(signal);
+          setProgress(28);
+          const hasCodebook = codebookForModel().length > 0;
+          log(hasCodebook ? "Running codebook applier." : "No active codebook yet. Skipping codebook applier.");
+          const applierOutput = hasCodebook
+            ? await callOpenAI(buildApplierPrompt(doc), applierSchema(), signal)
+            : { doc_id: doc.id, applied_codes: [], codes_with_no_instance: [] };
+          ensureProcessingActive(signal);
+          setProgress(46);
+          log("Checking exact quotes.");
+          const verification = evidenceAuditor(doc.text, collectQuotes(scoutOutput, applierOutput));
+          const verifiedScout = removeFailedScoutQuotes(scoutOutput, verification);
+          const verifiedApplier = removeFailedApplierQuotes(applierOutput, verification);
+          logVerification(doc.id, verification);
+          applyAnnotationResult(doc, verifiedApplier);
+          setProgress(62);
+          log("Running novelty detector.");
+          const noveltyOutput = await callOpenAI(buildNoveltyPrompt(doc, verifiedScout), noveltySchema(), signal);
+          ensureProcessingActive(signal);
+          const verifiedNovelty = removeFailedNoveltyQuotes(noveltyOutput, verification);
+          setProgress(78);
+          const needsMergeReview = (verifiedNovelty.novelty_decisions || []).some((item) =>
+            ["new_code", "possible_merge", "needs_human_review"].includes(item.decision)
+          );
+          log(needsMergeReview ? "Running merge reviewer." : "No merge review needed.");
+          const mergeOutput = needsMergeReview ? await callOpenAI(buildMergePrompt(verifiedNovelty), mergeSchema(), signal) : { merge_review: [] };
+          ensureProcessingActive(signal);
+          buildHumanReviewPacket(doc, verifiedNovelty, mergeOutput, verification);
+          updateDormantStatuses();
+          doc.status = "coded";
+          addAuditLog({
+            doc_id: doc.id,
+            event_type: "document_processed",
+            reason: "Scout, applier, verifier, novelty detector, merge reviewer, and review packet completed."
+          });
+          createSnapshot(`After processing ${doc.id}`);
+          setProgress(100);
+          log(`Processed ${doc.id}. Review any open items before adding new active codes.`);
+          render();
+        } finally {
+          activeRun = null;
+          setProcessing(false);
+        }
+      }
+
+      function ensureProcessingActive(signal) {
+        if (signal.aborted) throw new Error("Processing stopped.");
       }
 
       function collectQuotes(scoutOutput, applierOutput) {
@@ -1392,7 +1454,7 @@
           await processDoc(selectedDoc());
         } catch (err) {
           setProgress(0);
-          setStatus("Processing failed.");
+          setStatus(err.message === "Processing stopped." ? "Processing stopped." : "Processing failed.");
           log(err.message);
         }
       });
@@ -1404,10 +1466,12 @@
           await processDoc(next);
         } catch (err) {
           setProgress(0);
-          setStatus("Processing failed.");
+          setStatus(err.message === "Processing stopped." ? "Processing stopped." : "Processing failed.");
           log(err.message);
         }
       });
+
+      els.stopProcessBtn.addEventListener("click", stopProcessing);
 
       els.loadModelsBtn.addEventListener("click", async () => {
         try {
