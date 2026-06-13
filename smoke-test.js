@@ -89,6 +89,14 @@ if (!elements.modelSelect.options.length) {
   throw new Error("Preferences did not render model options.");
 }
 
+if (!html.includes('src="assets/quala-koala.png"') || html.includes("Quala 🐨")) {
+  throw new Error("Header logo asset is not used.");
+}
+
+if (/Describe the qualitative study goal here|epilepsy|HCI/.test(elements.lens.value)) {
+  throw new Error("Study lens default is not usable and generic.");
+}
+
 if (!elements.fileInput || !html.includes(".docx")) {
   throw new Error("DOCX file input is not available.");
 }
@@ -173,6 +181,18 @@ if (scout.scout_codes[0].supporting_quotes.length !== 1 || scout.scout_codes[0].
   throw new Error("Failed scout quotes were not removed.");
 }
 
+const fallbackNovelty = context.removeFailedNoveltyQuotes(
+  { doc_id: "D1", novelty_decisions: [] },
+  verification,
+  scout
+);
+if (
+  fallbackNovelty.novelty_decisions.length !== 1 ||
+  fallbackNovelty.novelty_decisions[0].evidence_quotes[0] !== "beta"
+) {
+  throw new Error("Verified scout finding did not become a fallback novelty item.");
+}
+
 const exportPayload = context.exportPayload();
 if (
   !Array.isArray(exportPayload.data) ||
@@ -186,23 +206,12 @@ if (
 
 context.buildHumanReviewPacket(
   { id: "D2" },
-  {
-    novelty_decisions: [
-      {
-        scout_code_name: "New concern",
-        decision: "new_code",
-        matched_code_id: "",
-        suggested_code: { name: "New concern", definition: "A new concern." },
-        evidence_quotes: ["beta"],
-        rationale: "Verified scout evidence."
-      }
-    ]
-  },
+  fallbackNovelty,
   { merge_review: [] },
   verification
 );
 const candidatePayload = context.exportPayload();
-const candidate = candidatePayload.codebook.find((code) => code.name === "New concern");
+const candidate = candidatePayload.codebook.find((code) => code.name === "Found idea");
 if (!candidate || candidate.status !== "needs_human_review") {
   throw new Error("New scout code was not added as a pending codebook item.");
 }

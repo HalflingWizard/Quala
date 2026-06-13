@@ -42,6 +42,24 @@
         padding: 20px 28px 10px;
       }
 
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        min-width: 0;
+      }
+
+      .brandLogo {
+        width: 64px;
+        height: 64px;
+        flex: 0 0 auto;
+        object-fit: contain;
+      }
+
+      .brandText {
+        min-width: 0;
+      }
+
       h1 {
         margin: 0;
         font-size: 26px;
@@ -477,9 +495,12 @@
   </head>
   <body>
     <header>
-      <div>
-        <h1>Quala 🐨</h1>
-        <p class="muted small">Human in the loop qualitative coding for transcripts, posts, and field text.</p>
+      <div class="brand">
+        <img class="brandLogo" src="assets/quala-koala.png" alt="" />
+        <div class="brandText">
+          <h1>Quala</h1>
+          <p class="muted small">Human in the loop qualitative coding for transcripts, posts, and field text.</p>
+        </div>
       </div>
       <div class="row">
         <button id="saveBtn">Save</button>

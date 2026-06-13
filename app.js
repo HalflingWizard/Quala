@@ -18,7 +18,7 @@
           temperature: 0.2,
           maxQuotes: 12,
           lens:
-            "Describe the qualitative study goal here. Include the research question, population, setting, and the kinds of patterns that would be useful to find.",
+            "This is a general qualitative study. Identify recurring themes, important differences between participants or documents, unexpected concerns, helpful or harmful experiences, needs, barriers, motivations, decisions, and concrete examples that answer the research question.",
           codebookPrompt:
             "Find possible new concepts in this document without using the current codebook. Focus on ideas that help answer the study question. Every supporting quote must be copied exactly from the document as one contiguous substring. Do not change spelling, punctuation, capitalization, spacing, or wording. Do not paraphrase. Do not add ellipses. Before returning a quote, check that document_text.includes(quote) would be true.",
           refinePrompt:
@@ -32,14 +32,21 @@
 
       const CODE_STATUSES = ["candidate", "active", "merged", "dormant", "rejected", "needs_human_review"];
       const LEGACY_DEFAULT_PROMPTS = {
-        lens:
+        lens: [
           "The study is about epilepsy self management, technology for self management, social support, and HCI design opportunities. Prefer surprising, novel, specific, and useful codes. Avoid ordinary facts that someone could learn from a quick web search.",
-        codebookPrompt:
+          "Describe the qualitative study goal here. Include the research question, population, setting, and the kinds of patterns that would be useful to find."
+        ],
+        codebookPrompt: [
           "Find possible new concepts in this document without using the current codebook. Focus on specific, useful, and surprising ideas. Use exact document text for every quote.",
-        refinePrompt:
+          "Find possible new concepts in this document without using the current codebook. Focus on ideas that help answer the study question. Every supporting quote must be copied exactly from the document as one contiguous substring. Do not change spelling, punctuation, capitalization, spacing, or wording. Do not paraphrase. Do not add ellipses. Before returning a quote, check that document_text.includes(quote) would be true."
+        ],
+        refinePrompt: [
           "Compare scout findings with the current codebook. Mark each finding as new, already covered, possible merge, or needs human review. Do not create active codes directly.",
-        annotationPrompt:
+          "Compare scout findings with the current codebook. Mark each finding as new_code, already_covered, possible_merge, or needs_human_review. Do not create active codes directly. Use only evidence quotes that were already copied exactly from the document."
+        ],
+        annotationPrompt: [
           "Apply only the existing active codebook. Do not create codes. Return exact verbatim quotes only. If a code does not appear, list it as having no instance."
+        ]
       };
 
       const $ = (id) => document.getElementById(id);
@@ -137,7 +144,7 @@
 
       function migrateLegacyDefaultPrompts(preferences, savedPreferences) {
         for (const key of Object.keys(LEGACY_DEFAULT_PROMPTS)) {
-          if (savedPreferences[key] === LEGACY_DEFAULT_PROMPTS[key]) {
+          if (LEGACY_DEFAULT_PROMPTS[key].includes(savedPreferences[key])) {
             preferences[key] = defaults.preferences[key];
           }
         }
@@ -1179,7 +1186,7 @@
         log("Running novelty detector.");
         const noveltyOutput = await callOpenAI(buildNoveltyPrompt(doc, verifiedScout), noveltySchema(), signal);
         ensureProcessingActive(signal);
-        const verifiedNovelty = removeFailedNoveltyQuotes(noveltyOutput, verification);
+        const verifiedNovelty = removeFailedNoveltyQuotes(noveltyOutput, verification, verifiedScout);
         stepProgress(78);
         const needsMergeReview = (verifiedNovelty.novelty_decisions || []).some((item) =>
           ["new_code", "possible_merge", "needs_human_review"].includes(item.decision)
@@ -1265,14 +1272,39 @@
         };
       }
 
-      function removeFailedNoveltyQuotes(noveltyOutput, verification) {
+      function removeFailedNoveltyQuotes(noveltyOutput, verification, scoutOutput = { scout_codes: [] }) {
         const verified = verifiedQuoteSet(verification);
+        const scoutByName = new Map(
+          (scoutOutput.scout_codes || []).map((code) => [String(code.temporary_code_name || "").toLowerCase(), code])
+        );
+        const decisions = (noveltyOutput.novelty_decisions || []).map((item) => {
+          const evidence = (item.evidence_quotes || []).filter((quote) => verified.has(quote));
+          const scout = scoutByName.get(String(item.scout_code_name || "").toLowerCase());
+          const fallbackEvidence = evidence.length ? evidence : scout?.supporting_quotes || [];
+          return {
+            ...item,
+            evidence_quotes: fallbackEvidence.filter((quote) => verified.has(quote))
+          };
+        });
+        const decidedNames = new Set(decisions.map((item) => String(item.scout_code_name || "").toLowerCase()));
+        for (const scout of scoutOutput.scout_codes || []) {
+          const key = String(scout.temporary_code_name || "").toLowerCase();
+          if (!key || decidedNames.has(key) || !scout.supporting_quotes?.length) continue;
+          decisions.push({
+            scout_code_name: scout.temporary_code_name,
+            decision: "needs_human_review",
+            matched_code_id: "",
+            suggested_code: {
+              name: scout.temporary_code_name,
+              definition: scout.definition || ""
+            },
+            evidence_quotes: scout.supporting_quotes.filter((quote) => verified.has(quote)),
+            rationale: "Novelty detector returned no decision for this verified scout finding."
+          });
+        }
         return {
           ...noveltyOutput,
-          novelty_decisions: (noveltyOutput.novelty_decisions || []).map((item) => ({
-            ...item,
-            evidence_quotes: (item.evidence_quotes || []).filter((quote) => verified.has(quote))
-          }))
+          novelty_decisions: decisions
         };
       }
 
