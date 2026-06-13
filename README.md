@@ -2,19 +2,22 @@
 
 Quala is a browser based qualitative analysis tool for interviews, social media posts, field notes, and other text data.
 
-It helps a researcher build a codebook, refine it over a queue of datapoints, annotate exact quotes, and keep a history of every step.
+It helps a researcher build a codebook over a queue of datapoints, annotate exact quotes, review codebook changes, and keep a history of every step.
 
 ## What It Does
 
 - Add datapoints by pasting text or opening local TXT and DOCX files.
 - Store an OpenAI API key in the browser and load available models.
 - Edit the study lens, codebook prompt, refinement prompt, and annotation prompt.
-- Generate an initial codebook from the first datapoint with a codebook agent.
-- Refine the codebook as later datapoints are processed with the same codebook agent.
-- Run one annotation agent pass per code over the full datapoint.
-- Ask GPT to remove weak codes, merge similar codes, and keep rare but important codes.
-- Annotate exact verbatim quotes with codes and certainty from 1 to 5.
+- Run a document scout that finds possible new concepts without seeing the codebook.
+- Run a codebook applier that can only apply existing active codes.
+- Check every model quote with a non LLM verifier using exact substring matching.
+- Run a novelty detector and merge reviewer before any codebook change.
+- Send new codes and merge decisions to human review before they become active.
+- Mark codes as active, dormant, merged, rejected, candidate, or needing review. Codes are not deleted during the document loop.
+- Annotate exact verbatim quotes with code names while preserving stable code IDs.
 - Save snapshots before and after processing so a researcher can undo mistakes.
+- Save an audit log for quote checks, review requests, and codebook changes.
 - Export JSON with a top level `data` array and an `annotation` field for compatibility with `arazilab/analysis_tools`.
 
 ## Run
@@ -39,13 +42,14 @@ node smoke-test.js
 2. Go to Preferences.
 3. Add an OpenAI API key.
 4. Load models or use the default model value.
-5. Edit the study lens and prompts if needed.
+5. Edit the study lens, scout prompt, novelty prompt, and applier prompt if needed.
 6. Go to Workspace.
 7. Add datapoints by paste or open TXT and DOCX files.
 8. Process the selected datapoint.
-9. Review the codebook and annotations.
-10. Edit or restore from History when needed.
-11. Export JSON.
+9. Open Human review and approve or reject suggested codebook changes.
+10. Review the codebook, annotations, and audit log.
+11. Edit or restore from History when needed.
+12. Export JSON.
 
 ## Export Shape
 
@@ -57,13 +61,28 @@ The exported file is designed to work with tools that expect datapoints with an 
   "exported_at": "2026-06-12T00:00:00.000Z",
   "codebook": [
     {
-      "code": "Trust Boundaries",
+      "code_id": "C001",
+      "name": "Trust Boundaries",
       "definition": "A clear definition of when a participant would or would not trust a tool.",
-      "example": "Exact quote from the input.",
-      "decision": "add",
-      "decision_note": "Why the code was kept or changed."
+      "status": "active",
+      "created_from_doc": "D1",
+      "example_quotes": [
+        {
+          "doc_id": "D1",
+          "quote": "Exact quote from the input.",
+          "verified": true
+        }
+      ],
+      "history": [
+        {
+          "event": "created",
+          "doc_id": "D1",
+          "reason": "Human approved a verified new code."
+        }
+      ]
     }
   ],
+  "audit_log": [],
   "data": [
     {
       "id": "D1",
@@ -73,6 +92,7 @@ The exported file is designed to work with tools that expect datapoints with an 
       "quotes": [
         {
           "quote": "Exact verbatim quote from the input.",
+          "code_ids": ["C001"],
           "annotations": ["Trust Boundaries"],
           "certainty": 5,
           "polarity": "negative",

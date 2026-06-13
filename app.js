@@ -7,6 +7,8 @@
         codebook: [],
         annotations: [],
         history: [],
+        reviewItems: [],
+        auditLog: [],
         preferences: {
           apiKey: "",
           model: "gpt-4.1",
@@ -18,13 +20,15 @@
           lens:
             "The study is about epilepsy self management, technology for self management, social support, and HCI design opportunities. Prefer surprising, novel, specific, and useful codes. Avoid ordinary facts that someone could learn from a quick web search.",
           codebookPrompt:
-            "Create or update a qualitative codebook from this datapoint. Focus on surprising, novel, and useful HCI insights. Include positive and negative examples. Do not invent quotes. Use exact transcript text for examples.",
+            "Find possible new concepts in this document without using the current codebook. Focus on specific, useful, and surprising ideas. Use exact document text for every quote.",
           refinePrompt:
-            "Revise the current codebook using the new datapoint. Keep useful existing codes, add new codes when needed, merge codes that are too similar, and remove codes that are weak, ordinary, rarely useful, or not interesting. Do not delete rare codes if they are important or surprising.",
+            "Compare scout findings with the current codebook. Mark each finding as new, already covered, possible merge, or needs human review. Do not create active codes directly.",
           annotationPrompt:
-            "For each code, inspect the entire datapoint and return exact verbatim quotes that match the code definition. If a code does not appear, return an empty list for that code. Include positive and negative cases. Do not paraphrase, shorten, merge, or add ellipses."
+            "Apply only the existing active codebook. Do not create codes. Return exact verbatim quotes only. If a code does not appear, list it as having no instance."
         }
       };
+
+      const CODE_STATUSES = ["candidate", "active", "merged", "dormant", "rejected", "needs_human_review"];
 
       const $ = (id) => document.getElementById(id);
       const clone = (obj) => JSON.parse(JSON.stringify(obj));
@@ -77,6 +81,8 @@
         queuePill: $("queuePill"),
         reasoning: $("reasoning"),
         refinePrompt: $("refinePrompt"),
+        reviewList: $("reviewList"),
+        auditList: $("auditList"),
         saveBtn: $("saveBtn"),
         saveCodeBtn: $("saveCodeBtn"),
         snapshotBtn: $("snapshotBtn"),
@@ -96,14 +102,56 @@
           const raw = localStorage.getItem(STORE_KEY);
           if (!raw) return clone(defaults);
           const parsed = JSON.parse(raw);
-          return {
+          const loaded = {
             ...clone(defaults),
             ...parsed,
             preferences: { ...clone(defaults.preferences), ...(parsed.preferences || {}) }
           };
+          loaded.codebook = (loaded.codebook || []).map((code, index) => normalizeCode(code, index));
+          loaded.annotations = (loaded.annotations || []).map(normalizeAnnotationDoc);
+          loaded.reviewItems = loaded.reviewItems || [];
+          loaded.auditLog = loaded.auditLog || [];
+          return loaded;
         } catch {
           return clone(defaults);
         }
+      }
+
+      function normalizeCode(code, index = 0) {
+        const name = String(code.name || code.code || "").trim();
+        return {
+          id: code.id || uid(),
+          code_id: code.code_id || code.codeId || `C${String(index + 1).padStart(3, "0")}`,
+          name,
+          definition: String(code.definition || "").trim(),
+          status: CODE_STATUSES.includes(code.status) ? code.status : "active",
+          created_from_doc: code.created_from_doc || code.createdFromDoc || "",
+          example_quotes: Array.isArray(code.example_quotes)
+            ? code.example_quotes
+            : code.example
+              ? [{ doc_id: code.created_from_doc || "", quote: code.example, verified: true }]
+              : [],
+          history: Array.isArray(code.history)
+            ? code.history
+            : [
+                {
+                  event: code.decision || "imported",
+                  doc_id: code.created_from_doc || "",
+                  reason: code.decision_note || "Loaded from earlier Quala state."
+                }
+              ]
+        };
+      }
+
+      function normalizeAnnotationDoc(doc) {
+        return {
+          ...doc,
+          quotes: (doc.quotes || []).map((quote) => ({
+            ...quote,
+            code_ids: quote.code_ids || [],
+            annotations: quote.annotations || []
+          }))
+        };
       }
 
       function saveState(message = "Saved.") {
@@ -162,6 +210,8 @@
         renderDocs();
         renderCodebook();
         renderAnnotations();
+        renderReview();
+        renderAudit();
         renderHistory();
         persistState();
       }
@@ -195,7 +245,7 @@
         els.statCodes.textContent = state.codebook.length;
         els.statQuotes.textContent = quoteCount;
         els.queuePill.textContent = `${state.docs.length} docs`;
-        els.codePill.textContent = `${state.codebook.length} codes`;
+        els.codePill.textContent = `${state.codebook.filter((code) => code.status !== "rejected").length} codes`;
         els.annPill.textContent = `${quoteCount} quotes`;
         els.histPill.textContent = state.history.length;
       }
@@ -242,11 +292,15 @@
         }
         for (const code of state.codebook) {
           const row = document.createElement("tr");
-          const pct = coverage[code.code] || 0;
+          const pct = coverage[code.name] || 0;
           row.innerHTML = `
-            <td><strong>${escapeHtml(code.code)}</strong></td>
+            <td>
+              <strong>${escapeHtml(code.name)}</strong>
+              <div class="muted tiny">${escapeHtml(code.code_id)}</div>
+              <span class="pill ${code.status === "active" ? "ok" : code.status === "needs_human_review" ? "warn" : ""}">${escapeHtml(code.status)}</span>
+            </td>
             <td>${escapeHtml(code.definition || "")}</td>
-            <td><div class="quote small">${escapeHtml(code.example || "")}</div></td>
+            <td><div class="quote small">${escapeHtml(code.example_quotes?.[0]?.quote || "")}</div></td>
             <td><span class="pill">${pct}%</span></td>
             <td><button data-edit-code="${escapeHtml(code.id)}">Edit</button></td>
           `;
@@ -255,6 +309,69 @@
         els.codebookRows.querySelectorAll("[data-edit-code]").forEach((btn) => {
           btn.addEventListener("click", () => openCodeModal(btn.dataset.editCode));
         });
+      }
+
+      function renderReview() {
+        if (!els.reviewList) return;
+        els.reviewList.innerHTML = "";
+        const openItems = state.reviewItems.filter((item) => item.status === "open");
+        if (!openItems.length) {
+          els.reviewList.innerHTML = `<div class="item muted small">No human review items.</div>`;
+          return;
+        }
+        for (const item of openItems) {
+          const div = document.createElement("div");
+          div.className = "item";
+          const quotes = (item.evidence_quotes || [])
+            .map((quote) => `<div class="quote small" style="margin-top: 8px">${escapeHtml(quote)}</div>`)
+            .join("");
+          div.innerHTML = `
+            <div class="itemTitle">
+              <span>${escapeHtml(item.type.replaceAll("_", " "))}</span>
+              <span class="pill">${escapeHtml(item.doc_id || "")}</span>
+            </div>
+            <h3 style="margin-top: 8px">${escapeHtml(item.suggested_code?.name || item.scout_code_name || "")}</h3>
+            <p class="small">${escapeHtml(item.suggested_code?.definition || "")}</p>
+            ${quotes}
+            <p class="muted small" style="margin-top: 8px">${escapeHtml(item.rationale || "")}</p>
+            <div class="row" style="margin-top: 8px">
+              <button class="primary" data-approve-review="${escapeHtml(item.id)}">Approve</button>
+              <button data-reject-review="${escapeHtml(item.id)}">Reject</button>
+            </div>
+          `;
+          els.reviewList.appendChild(div);
+        }
+        els.reviewList.querySelectorAll("[data-approve-review]").forEach((btn) => {
+          btn.addEventListener("click", () => approveReviewItem(btn.dataset.approveReview));
+        });
+        els.reviewList.querySelectorAll("[data-reject-review]").forEach((btn) => {
+          btn.addEventListener("click", () => rejectReviewItem(btn.dataset.rejectReview));
+        });
+      }
+
+      function renderAudit() {
+        if (!els.auditList) return;
+        els.auditList.innerHTML = "";
+        if (!state.auditLog.length) {
+          els.auditList.innerHTML = `<div class="item muted small">No audit events yet.</div>`;
+          return;
+        }
+        state.auditLog
+          .slice()
+          .reverse()
+          .forEach((entry) => {
+            const div = document.createElement("div");
+            div.className = "item";
+            div.innerHTML = `
+              <div class="itemTitle">
+                <span>${escapeHtml(entry.event_type)}</span>
+                <span class="pill">${escapeHtml(entry.doc_id || "system")}</span>
+              </div>
+              <div class="muted tiny">${escapeHtml(entry.timestamp)}</div>
+              <p class="small" style="margin-top: 8px">${escapeHtml(entry.reason || "")}</p>
+            `;
+            els.auditList.appendChild(div);
+          });
       }
 
       function renderAnnotations() {
@@ -350,7 +467,9 @@
           docs: clone(state.docs),
           selectedDocId: state.selectedDocId,
           codebook: clone(state.codebook),
-          annotations: clone(state.annotations)
+          annotations: clone(state.annotations),
+          reviewItems: clone(state.reviewItems),
+          auditLog: clone(state.auditLog)
         });
         if (state.history.length > 60) state.history.shift();
       }
@@ -362,6 +481,8 @@
         state.selectedDocId = entry.selectedDocId;
         state.codebook = clone(entry.codebook);
         state.annotations = clone(entry.annotations);
+        state.reviewItems = clone(entry.reviewItems || []);
+        state.auditLog = clone(entry.auditLog || []);
         render();
         saveState("Snapshot restored.");
       }
@@ -492,100 +613,205 @@
         else if (docs.length) setStatus(`${docs.length} file${docs.length === 1 ? "" : "s"} added.`);
       }
 
-      function codebookSchema() {
+      function scoutSchema() {
         return {
-          name: "quala_codebook_step",
+          name: "quala_document_scout",
           schema: {
             type: "object",
             additionalProperties: false,
             properties: {
-              codebook: {
+              doc_id: { type: "string" },
+              scout_codes: {
                 type: "array",
                 items: {
                   type: "object",
                   additionalProperties: false,
                   properties: {
-                    code: { type: "string" },
+                    temporary_code_name: { type: "string" },
                     definition: { type: "string" },
-                    example: { type: "string" },
-                    decision: { type: "string", enum: ["keep", "add", "modify", "delete"] },
-                    decision_note: { type: "string" }
+                    supporting_quotes: { type: "array", items: { type: "string" } },
+                    confidence: { type: "string", enum: ["low", "medium", "high"] }
                   },
-                  required: ["code", "definition", "example", "decision", "decision_note"]
+                  required: ["temporary_code_name", "definition", "supporting_quotes", "confidence"]
                 }
-              },
-              notes: { type: "string" }
+              }
             },
-            required: ["codebook", "notes"]
+            required: ["doc_id", "scout_codes"]
           },
           strict: true
         };
       }
 
-      function annotationSchema() {
+      function applierSchema() {
         return {
-          name: "quala_annotation_step",
+          name: "quala_codebook_applier",
           schema: {
             type: "object",
             additionalProperties: false,
             properties: {
-              matches: {
+              doc_id: { type: "string" },
+              applied_codes: {
                 type: "array",
                 items: {
                   type: "object",
                   additionalProperties: false,
                   properties: {
-                    quote: { type: "string" },
-                    certainty: { type: "integer", minimum: 1, maximum: 5 },
-                    polarity: { type: "string", enum: ["positive", "negative", "mixed"] },
+                    code_id: { type: "string" },
+                    instances: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        additionalProperties: false,
+                        properties: {
+                          quote: { type: "string" },
+                          reason: { type: "string" }
+                        },
+                        required: ["quote", "reason"]
+                      }
+                    }
+                  },
+                  required: ["code_id", "instances"]
+                }
+              },
+              codes_with_no_instance: { type: "array", items: { type: "string" } }
+            },
+            required: ["doc_id", "applied_codes", "codes_with_no_instance"]
+          },
+          strict: true
+        };
+      }
+
+      function noveltySchema() {
+        return {
+          name: "quala_novelty_detector",
+          schema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              doc_id: { type: "string" },
+              novelty_decisions: {
+                type: "array",
+                items: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    scout_code_name: { type: "string" },
+                    decision: { type: "string", enum: ["new_code", "already_covered", "possible_merge", "needs_human_review"] },
+                    matched_code_id: { type: "string" },
+                    suggested_code: {
+                      type: "object",
+                      additionalProperties: false,
+                      properties: {
+                        name: { type: "string" },
+                        definition: { type: "string" }
+                      },
+                      required: ["name", "definition"]
+                    },
+                    evidence_quotes: { type: "array", items: { type: "string" } },
                     rationale: { type: "string" }
                   },
-                  required: ["quote", "certainty", "polarity", "rationale"]
+                  required: ["scout_code_name", "decision", "matched_code_id", "suggested_code", "evidence_quotes", "rationale"]
                 }
-              },
-              notes: { type: "string" }
+              }
             },
-            required: ["matches", "notes"]
+            required: ["doc_id", "novelty_decisions"]
           },
           strict: true
         };
       }
 
-      function buildCodebookPrompt(doc) {
-        const coverage = computeCoverage();
-        const codebookForModel = state.codebook.map((code) => ({
-          code: code.code,
-          definition: code.definition,
-          example: code.example,
-          coverage_percent: coverage[code.code] || 0
-        }));
-        const phasePrompt = state.codebook.length ? state.preferences.refinePrompt : state.preferences.codebookPrompt;
+      function mergeSchema() {
+        return {
+          name: "quala_merge_reviewer",
+          schema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              merge_review: {
+                type: "array",
+                items: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    candidate_code_name: { type: "string" },
+                    existing_code_id: { type: "string" },
+                    argument_for_merge: { type: "string" },
+                    argument_against_merge: { type: "string" },
+                    recommendation: { type: "string", enum: ["merge", "keep_separate", "needs_human_review"] },
+                    confidence: { type: "string", enum: ["low", "medium", "high"] }
+                  },
+                  required: [
+                    "candidate_code_name",
+                    "existing_code_id",
+                    "argument_for_merge",
+                    "argument_against_merge",
+                    "recommendation",
+                    "confidence"
+                  ]
+                }
+              }
+            },
+            required: ["merge_review"]
+          },
+          strict: true
+        };
+      }
+
+      function codebookForModel() {
+        return state.codebook
+          .filter((code) => code.status === "active" || code.status === "dormant")
+          .map((code) => ({
+            code_id: code.code_id,
+            name: code.name,
+            definition: code.definition,
+            status: code.status
+          }));
+      }
+
+      function buildScoutPrompt(doc) {
         return [
           {
             role: "system",
             content:
-              "You are a qualitative analysis agent. Return only JSON that matches the schema. You must only use exact quotes from the datapoint. Do not invent quotes. Do not paraphrase quotes. Prefer codes that are specific, useful, and surprising."
+              "You are Agent 1, Document scout. Return only JSON that matches the schema. You must not use or ask for the current codebook. Every supporting quote must be exact text from the document."
           },
           {
             role: "user",
             content: JSON.stringify(
               {
-                task: "Update the codebook from this datapoint.",
-                lens: state.preferences.lens,
-                codebook_instruction: phasePrompt,
-                current_codebook: codebookForModel,
-                datapoint: {
-                  id: doc.id,
-                  source: doc.source,
-                  text: doc.text
-                },
+                doc_id: doc.id,
+                study_lens: state.preferences.lens,
+                scout_instruction: state.preferences.codebookPrompt,
+                document_text: doc.text
+              },
+              null,
+              2
+            )
+          }
+        ];
+      }
+
+      function buildApplierPrompt(doc) {
+        return [
+          {
+            role: "system",
+            content:
+              "You are Agent 2, Codebook applier. Return only JSON that matches the schema. You cannot create codes. Quotes must be exact substrings from the document. If a code has no quote, put its code_id in codes_with_no_instance."
+          },
+          {
+            role: "user",
+            content: JSON.stringify(
+              {
+                doc_id: doc.id,
+                document_text: doc.text,
+                codebook: codebookForModel(),
+                annotation_instruction: state.preferences.annotationPrompt,
+                max_quotes_per_code: state.preferences.maxQuotes,
                 required_behavior: [
-                  "Return a complete updated codebook after this datapoint.",
-                  "Use code names that are 2 to 5 words long.",
-                  "Definitions must be clear to someone who has not read the datapoint.",
-                  "Delete weak codes by omitting them from the updated codebook.",
-                  "Use exact transcript text for each code example.",
-                  "A code can be rare if it is important, surprising, or useful."
+                  "Apply only listed code_id values.",
+                  "Return exact verbatim quotes only.",
+                  "Do not paraphrase, shorten, merge, or add ellipses.",
+                  "Include positive and negative cases when they match the code definition."
                 ]
               },
               null,
@@ -595,39 +821,52 @@
         ];
       }
 
-      function buildAnnotationPrompt(doc, code) {
+      function buildNoveltyPrompt(doc, scoutOutput) {
         return [
           {
             role: "system",
             content:
-              "You are a qualitative annotation agent. Return only JSON that matches the schema. You must only use exact quotes from the datapoint. Do not invent quotes. Do not paraphrase quotes. Return an empty matches array if the code does not appear."
+              "You are Agent 3, Novelty detector. Return only JSON that matches the schema. Compare scout findings with the current codebook. Do not create active codes."
           },
           {
             role: "user",
             content: JSON.stringify(
               {
-                task: "Find all datapoint passages that match this one code.",
-                lens: state.preferences.lens,
-                annotation_instruction: state.preferences.annotationPrompt,
-                max_quotes: state.preferences.maxQuotes,
-                code: {
-                  code: code.code,
-                  definition: code.definition,
-                  example: code.example
-                },
-                datapoint: {
-                  id: doc.id,
-                  source: doc.source,
-                  text: doc.text
-                },
-                required_behavior: [
-                  "Inspect the entire datapoint for this code.",
-                  "Return exact verbatim quotes only.",
-                  "If an interviewer question is needed, include the full question and answer in the quote.",
-                  "Do not use partial quotes or ellipses.",
-                  "Use certainty from 1 to 5.",
-                  "Positive means useful, trustworthy, easy, wanted, or appropriate.",
-                  "Negative means confusing, not useful, untrustworthy, unwanted, inappropriate, or better handled by another person, tool, or method."
+                doc_id: doc.id,
+                novelty_instruction: state.preferences.refinePrompt,
+                scout_codes: scoutOutput.scout_codes || [],
+                current_codebook: codebookForModel(),
+                allowed_decisions: ["new_code", "already_covered", "possible_merge", "needs_human_review"]
+              },
+              null,
+              2
+            )
+          }
+        ];
+      }
+
+      function buildMergePrompt(noveltyOutput) {
+        const candidates = (noveltyOutput.novelty_decisions || []).filter((item) =>
+          ["new_code", "possible_merge", "needs_human_review"].includes(item.decision)
+        );
+        return [
+          {
+            role: "system",
+            content:
+              "You are Agent 4, Merge reviewer. Return only JSON that matches the schema. You must argue both sides. Recommend merge only when meaning, use case, evidence type, and definition clarity all support merging."
+          },
+          {
+            role: "user",
+            content: JSON.stringify(
+              {
+                candidates,
+                current_codebook: codebookForModel(),
+                merge_rule: [
+                  "same meaning",
+                  "same use case",
+                  "same type of evidence",
+                  "definitions would become clearer after merge",
+                  "do not merge only because words are similar"
                 ]
               },
               null,
@@ -701,80 +940,157 @@
         if (!doc) return;
         setProgress(8);
         setStatus(`Processing ${doc.id}.`);
-        log("Preparing codebook request.");
+        log("Running document scout.");
         createSnapshot(`Before processing ${doc.id}`);
-        const codebookResult = await callOpenAI(buildCodebookPrompt(doc), codebookSchema());
-        applyCodebookResult(codebookResult);
-        setProgress(35);
-        log("Codebook updated. Starting one annotation pass per code.");
-        const quotes = [];
-        for (let i = 0; i < state.codebook.length; i += 1) {
-          const code = state.codebook[i];
-          setProgress(35 + Math.round(((i + 1) / Math.max(1, state.codebook.length)) * 55));
-          log(`Annotation agent ${i + 1} of ${state.codebook.length}. ${code.code}`);
-          const result = await callOpenAI(buildAnnotationPrompt(doc, code), annotationSchema());
-          quotes.push(...verifyAnnotationMatches(doc, code, result.matches || []));
-        }
-        applyAnnotationResult(doc, quotes);
+        const scoutOutput = await callOpenAI(buildScoutPrompt(doc), scoutSchema());
+        setProgress(28);
+        log("Running codebook applier.");
+        const applierOutput = await callOpenAI(buildApplierPrompt(doc), applierSchema());
+        setProgress(46);
+        log("Checking exact quotes.");
+        const verification = evidenceAuditor(doc.text, collectQuotes(scoutOutput, applierOutput));
+        const verifiedScout = removeFailedScoutQuotes(scoutOutput, verification);
+        const verifiedApplier = removeFailedApplierQuotes(applierOutput, verification);
+        logVerification(doc.id, verification);
+        applyAnnotationResult(doc, verifiedApplier);
+        setProgress(62);
+        log("Running novelty detector.");
+        const noveltyOutput = await callOpenAI(buildNoveltyPrompt(doc, verifiedScout), noveltySchema());
+        const verifiedNovelty = removeFailedNoveltyQuotes(noveltyOutput, verification);
+        setProgress(78);
+        const needsMergeReview = (verifiedNovelty.novelty_decisions || []).some((item) =>
+          ["new_code", "possible_merge", "needs_human_review"].includes(item.decision)
+        );
+        log(needsMergeReview ? "Running merge reviewer." : "No merge review needed.");
+        const mergeOutput = needsMergeReview ? await callOpenAI(buildMergePrompt(verifiedNovelty), mergeSchema()) : { merge_review: [] };
+        buildHumanReviewPacket(doc, verifiedNovelty, mergeOutput, verification);
+        updateDormantStatuses();
         doc.status = "coded";
+        addAuditLog({
+          doc_id: doc.id,
+          event_type: "document_processed",
+          reason: "Scout, applier, verifier, novelty detector, merge reviewer, and review packet completed."
+        });
         createSnapshot(`After processing ${doc.id}`);
         setProgress(100);
-        log(codebookResult.notes || `Processed ${doc.id}.`);
+        log(`Processed ${doc.id}. Review any open items before adding new active codes.`);
         render();
       }
 
-      function applyCodebookResult(result) {
-        const nextCodebook = [];
-        const seen = new Set();
-        for (const item of result.codebook || []) {
-          if (item.decision === "delete") continue;
-          const code = String(item.code || "").trim();
-          if (!code || seen.has(code.toLowerCase())) continue;
-          seen.add(code.toLowerCase());
-          const existing = state.codebook.find((c) => c.code.toLowerCase() === code.toLowerCase());
-          nextCodebook.push({
-            id: existing?.id || uid(),
-            code,
-            definition: String(item.definition || "").trim(),
-            example: String(item.example || "").trim(),
-            decision: item.decision || "keep",
-            decision_note: item.decision_note || ""
-          });
+      function collectQuotes(scoutOutput, applierOutput) {
+        const quotes = [];
+        for (const code of scoutOutput.scout_codes || []) {
+          quotes.push(...(code.supporting_quotes || []));
         }
-        state.codebook = nextCodebook;
+        for (const code of applierOutput.applied_codes || []) {
+          for (const item of code.instances || []) quotes.push(item.quote);
+        }
+        return quotes;
       }
 
-      function verifyAnnotationMatches(doc, code, matches) {
-        const verified = [];
+      function evidenceAuditor(documentText, quotes) {
         const seen = new Set();
-        for (const match of matches) {
-          const text = String(match.quote || "");
-          if (!text || !doc.text.includes(text) || seen.has(text)) continue;
-          seen.add(text);
-          verified.push({
-            id: uid(),
-            quote: text,
-            annotations: [code.code],
-            certainty: Number(match.certainty || 3),
-            polarity: match.polarity || "mixed",
-            rationale: match.rationale || ""
-          });
+        const verified_quotes = [];
+        const failed_quotes = [];
+        for (const raw of quotes) {
+          const quote = String(raw || "");
+          if (!quote || seen.has(quote)) continue;
+          seen.add(quote);
+          const start = documentText.indexOf(quote);
+          const result = {
+            quote,
+            verified: start !== -1,
+            start_char: start !== -1 ? start : null,
+            end_char: start !== -1 ? start + quote.length : null
+          };
+          if (result.verified) verified_quotes.push(result);
+          else failed_quotes.push(result);
         }
-        return verified;
+        return { verified_quotes, failed_quotes };
       }
 
-      function applyAnnotationResult(doc, quotes) {
+      function verifiedQuoteSet(verification) {
+        return new Set((verification.verified_quotes || []).map((item) => item.quote));
+      }
+
+      function removeFailedScoutQuotes(scoutOutput, verification) {
+        const verified = verifiedQuoteSet(verification);
+        return {
+          ...scoutOutput,
+          scout_codes: (scoutOutput.scout_codes || [])
+            .map((code) => ({
+              ...code,
+              supporting_quotes: (code.supporting_quotes || []).filter((quote) => verified.has(quote))
+            }))
+            .filter((code) => code.supporting_quotes.length)
+        };
+      }
+
+      function removeFailedApplierQuotes(applierOutput, verification) {
+        const verified = verifiedQuoteSet(verification);
+        return {
+          ...applierOutput,
+          applied_codes: (applierOutput.applied_codes || [])
+            .map((code) => ({
+              ...code,
+              instances: (code.instances || []).filter((item) => verified.has(item.quote))
+            }))
+            .filter((code) => code.instances.length)
+        };
+      }
+
+      function removeFailedNoveltyQuotes(noveltyOutput, verification) {
+        const verified = verifiedQuoteSet(verification);
+        return {
+          ...noveltyOutput,
+          novelty_decisions: (noveltyOutput.novelty_decisions || []).map((item) => ({
+            ...item,
+            evidence_quotes: (item.evidence_quotes || []).filter((quote) => verified.has(quote))
+          }))
+        };
+      }
+
+      function logVerification(docId, verification) {
+        addAuditLog({
+          doc_id: docId,
+          event_type: "quotes_verified",
+          reason: `${verification.verified_quotes.length} quotes passed. ${verification.failed_quotes.length} quotes failed.`
+        });
+        if (verification.failed_quotes.length) {
+          addAuditLog({
+            doc_id: docId,
+            event_type: "quote_verification_failed",
+            reason: verification.failed_quotes.map((item) => item.quote).join(" | ")
+          });
+        }
+      }
+
+      function applyAnnotationResult(doc, applierOutput) {
         const byQuote = new Map();
-        for (const quote of quotes) {
+        const codeById = Object.fromEntries(state.codebook.map((code) => [code.code_id, code]));
+        for (const applied of applierOutput.applied_codes || []) {
+          const code = codeById[applied.code_id];
+          if (!code) continue;
+          for (const instance of applied.instances || []) {
+            const quote = {
+              id: uid(),
+              quote: instance.quote,
+              code_ids: [code.code_id],
+              annotations: [code.name],
+              certainty: 5,
+              polarity: "mixed",
+              rationale: instance.reason || ""
+            };
           const existing = byQuote.get(quote.quote);
           if (!existing) {
             byQuote.set(quote.quote, quote);
             continue;
           }
+          existing.code_ids = Array.from(new Set([...(existing.code_ids || []), ...quote.code_ids]));
           existing.annotations = Array.from(new Set([...existing.annotations, ...quote.annotations]));
           existing.certainty = Math.max(existing.certainty, quote.certainty);
           existing.rationale = [existing.rationale, quote.rationale].filter(Boolean).join(" ");
-          if (existing.polarity !== quote.polarity) existing.polarity = "mixed";
+          }
         }
         const verifiedQuotes = Array.from(byQuote.values());
         const docOutput = {
@@ -786,6 +1102,157 @@
         };
         state.annotations = state.annotations.filter((item) => item.id !== doc.id);
         state.annotations.push(docOutput);
+      }
+
+      function buildHumanReviewPacket(doc, noveltyOutput, mergeOutput, verification) {
+        const mergeByName = new Map((mergeOutput.merge_review || []).map((item) => [item.candidate_code_name.toLowerCase(), item]));
+        let added = 0;
+        for (const item of noveltyOutput.novelty_decisions || []) {
+          if (item.decision === "already_covered") continue;
+          if (!item.evidence_quotes?.length) continue;
+          const merge = mergeByName.get((item.suggested_code?.name || item.scout_code_name || "").toLowerCase());
+          const type = merge?.recommendation === "merge" ? "merge_decision" : "new_code";
+          const reviewItem = {
+            id: uid(),
+            status: "open",
+            type,
+            doc_id: doc.id,
+            scout_code_name: item.scout_code_name,
+            suggested_code: item.suggested_code,
+            evidence_quotes: item.evidence_quotes,
+            verification: verification.verified_quotes.filter((quote) => item.evidence_quotes.includes(quote.quote)),
+            novelty_decision: item,
+            merge_review: merge || null,
+            system_recommendation: merge?.recommendation === "merge" ? "review_merge" : "approve",
+            rationale: [item.rationale, merge?.argument_for_merge, merge?.argument_against_merge].filter(Boolean).join(" ")
+          };
+          state.reviewItems.push(reviewItem);
+          added += 1;
+        }
+        if (added) {
+          addAuditLog({
+            doc_id: doc.id,
+            event_type: "human_review_requested",
+            reason: `${added} codebook change${added === 1 ? "" : "s"} need human review.`
+          });
+        }
+      }
+
+      function nextCodeId() {
+        const max = state.codebook.reduce((best, code) => {
+          const match = String(code.code_id || "").match(/^C(\d+)$/i);
+          return match ? Math.max(best, Number(match[1])) : best;
+        }, 0);
+        return `C${String(max + 1).padStart(3, "0")}`;
+      }
+
+      function approveReviewItem(id) {
+        const item = state.reviewItems.find((review) => review.id === id);
+        if (!item || item.status !== "open") return;
+        if (item.type === "merge_decision" && item.merge_review?.existing_code_id) {
+          const existing = state.codebook.find((code) => code.code_id === item.merge_review.existing_code_id);
+          if (!existing) return;
+          existing.definition = item.suggested_code.definition || existing.definition;
+          existing.status = "active";
+          existing.example_quotes = [
+            ...(existing.example_quotes || []),
+            ...item.verification.map((quote) => ({
+              doc_id: item.doc_id,
+              quote: quote.quote,
+              verified: quote.verified,
+              start_char: quote.start_char,
+              end_char: quote.end_char
+            }))
+          ];
+          existing.history = [
+            ...(existing.history || []),
+            {
+              event: "merged_candidate",
+              doc_id: item.doc_id,
+              reason: item.rationale || `Merged candidate ${item.suggested_code.name}.`
+            }
+          ];
+          item.status = "approved";
+          item.decided_at = new Date().toISOString();
+          addAuditLog({
+            doc_id: item.doc_id,
+            event_type: "merge_approved",
+            code_id: existing.code_id,
+            reason: `Human merged ${item.suggested_code.name} into ${existing.name}.`,
+            approved_by: "human"
+          });
+          createSnapshot(`Merged ${item.suggested_code.name}`);
+          render();
+          return;
+        }
+        const codeId = nextCodeId();
+        state.codebook.push({
+          id: uid(),
+          code_id: codeId,
+          name: item.suggested_code.name,
+          definition: item.suggested_code.definition,
+          status: "active",
+          created_from_doc: item.doc_id,
+          example_quotes: item.verification.map((quote) => ({
+            doc_id: item.doc_id,
+            quote: quote.quote,
+            verified: quote.verified,
+            start_char: quote.start_char,
+            end_char: quote.end_char
+          })),
+          history: [
+            {
+              event: "created",
+              doc_id: item.doc_id,
+              reason: item.rationale || "Approved from human review."
+            }
+          ]
+        });
+        item.status = "approved";
+        item.decided_at = new Date().toISOString();
+        addAuditLog({
+          doc_id: item.doc_id,
+          event_type: "new_code_added",
+          code_id: codeId,
+          reason: `Human approved ${item.suggested_code.name}.`,
+          approved_by: "human"
+        });
+        createSnapshot(`Approved ${item.suggested_code.name}`);
+        render();
+      }
+
+      function rejectReviewItem(id) {
+        const item = state.reviewItems.find((review) => review.id === id);
+        if (!item || item.status !== "open") return;
+        item.status = "rejected";
+        item.decided_at = new Date().toISOString();
+        addAuditLog({
+          doc_id: item.doc_id,
+          event_type: "review_item_rejected",
+          reason: `Human rejected ${item.suggested_code?.name || item.scout_code_name}.`,
+          approved_by: "human"
+        });
+        createSnapshot(`Rejected ${item.suggested_code?.name || item.scout_code_name}`);
+        render();
+      }
+
+      function updateDormantStatuses() {
+        const activeNames = new Set(state.annotations.flatMap((doc) => doc.annotation || []));
+        for (const code of state.codebook) {
+          if (code.status === "active" && !activeNames.has(code.name)) code.status = "dormant";
+          if (code.status === "dormant" && activeNames.has(code.name)) code.status = "active";
+        }
+      }
+
+      function addAuditLog(entry) {
+        state.auditLog.push({
+          timestamp: new Date().toISOString(),
+          doc_id: entry.doc_id || "",
+          event_type: entry.event_type,
+          code_id: entry.code_id || "",
+          reason: entry.reason || "",
+          approved_by: entry.approved_by || ""
+        });
       }
 
       async function loadModels() {
@@ -815,6 +1282,8 @@
           tool: "Quala",
           exported_at: new Date().toISOString(),
           codebook: state.codebook.map(({ id, ...rest }) => rest),
+          review_items: state.reviewItems,
+          audit_log: state.auditLog,
           data: state.annotations.map((doc) => ({
             id: doc.id,
             source: doc.source,
@@ -843,9 +1312,9 @@
       function openCodeModal(id = "") {
         const code = state.codebook.find((item) => item.id === id);
         els.editCodeId.value = code?.id || "";
-        els.editCodeName.value = code?.code || "";
+        els.editCodeName.value = code?.name || "";
         els.editCodeDefinition.value = code?.definition || "";
-        els.editCodeExample.value = code?.example || "";
+        els.editCodeExample.value = code?.example_quotes?.[0]?.quote || "";
         els.codeModal.classList.add("open");
       }
 
@@ -962,18 +1431,42 @@
       els.addCodeBtn.addEventListener("click", () => openCodeModal());
       els.saveCodeBtn.addEventListener("click", () => {
         const id = els.editCodeId.value || uid();
+        const existing = state.codebook.find((code) => code.id === id);
         const next = {
           id,
-          code: els.editCodeName.value.trim(),
+          code_id: existing?.code_id || nextCodeId(),
+          name: els.editCodeName.value.trim(),
           definition: els.editCodeDefinition.value.trim(),
-          example: els.editCodeExample.value.trim(),
-          decision: "manual",
-          decision_note: "Edited by user"
+          status: existing?.status || "active",
+          created_from_doc: existing?.created_from_doc || "",
+          example_quotes: els.editCodeExample.value.trim()
+            ? [
+                {
+                  doc_id: existing?.created_from_doc || "",
+                  quote: els.editCodeExample.value.trim(),
+                  verified: true
+                }
+              ]
+            : [],
+          history: [
+            ...(existing?.history || []),
+            {
+              event: "manual_edit",
+              doc_id: existing?.created_from_doc || "",
+              reason: "Edited by user."
+            }
+          ]
         };
-        if (!next.code) return;
+        if (!next.name) return;
         state.codebook = state.codebook.filter((code) => code.id !== id);
         state.codebook.push(next);
-        createSnapshot(`Edited code ${next.code}`);
+        addAuditLog({
+          event_type: "code_manual_edit",
+          code_id: next.code_id,
+          reason: `User edited ${next.name}.`,
+          approved_by: "human"
+        });
+        createSnapshot(`Edited code ${next.name}`);
         els.codeModal.classList.remove("open");
         render();
       });

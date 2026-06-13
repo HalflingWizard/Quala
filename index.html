@@ -477,7 +477,9 @@
         <div class="stack">
           <button class="navBtn active" data-view="workspace">Workspace <span class="pill" id="queuePill">0 docs</span></button>
           <button class="navBtn" data-view="codebook">Codebook <span class="pill" id="codePill">0 codes</span></button>
+          <button class="navBtn" data-view="review">Human review <span class="pill">check</span></button>
           <button class="navBtn" data-view="annotations">Annotations <span class="pill" id="annPill">0 quotes</span></button>
+          <button class="navBtn" data-view="audit">Audit log <span class="pill">log</span></button>
           <button class="navBtn" data-view="history">History <span class="pill" id="histPill">0</span></button>
           <button class="navBtn" data-view="preferences">Preferences <span class="pill" id="modelPill">model</span></button>
         </div>
@@ -559,7 +561,7 @@
           <div class="row between">
             <div>
               <h2>Codebook</h2>
-              <p class="muted small">Review, edit, merge, add, or remove codes after each GPT pass.</p>
+              <p class="muted small">Codes are marked active, dormant, rejected, merged, or needing review. Codes are not deleted during the document loop.</p>
             </div>
             <div class="row">
               <button id="addCodeBtn">Add code</button>
@@ -582,6 +584,14 @@
           </div>
         </section>
 
+        <section id="reviewView" class="view panel hidden">
+          <div>
+            <h2>Human review</h2>
+            <p class="muted small">Approve or reject high impact changes before they become active codes.</p>
+          </div>
+          <div id="reviewList" class="list" style="margin-top: 14px"></div>
+        </section>
+
         <section id="annotationsView" class="view panel hidden">
           <div class="row between">
             <div>
@@ -591,6 +601,14 @@
             <button id="copyAnnotationsBtn">Copy JSON</button>
           </div>
           <div id="annotationList" class="list" style="margin-top: 14px"></div>
+        </section>
+
+        <section id="auditView" class="view panel hidden">
+          <div>
+            <h2>Audit log</h2>
+            <p class="muted small">Quote checks, review requests, and codebook changes are recorded here.</p>
+          </div>
+          <div id="auditList" class="list" style="margin-top: 14px"></div>
         </section>
 
         <section id="historyView" class="view panel hidden">
@@ -658,15 +676,15 @@
               <textarea id="lens"></textarea>
             </div>
             <div>
-              <label for="codebookPrompt">Codebook prompt</label>
+              <label for="codebookPrompt">Scout prompt</label>
               <textarea id="codebookPrompt"></textarea>
             </div>
             <div>
-              <label for="refinePrompt">Refinement prompt</label>
+              <label for="refinePrompt">Novelty prompt</label>
               <textarea id="refinePrompt"></textarea>
             </div>
             <div>
-              <label for="annotationPrompt">Annotation prompt</label>
+              <label for="annotationPrompt">Applier prompt</label>
               <textarea id="annotationPrompt"></textarea>
             </div>
           </div>

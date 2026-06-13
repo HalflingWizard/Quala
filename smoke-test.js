@@ -135,4 +135,34 @@ if (o3.temperature || o3.verbosity || !o3.reasoning) {
   throw new Error("o-series model capabilities are wrong.");
 }
 
+const verification = context.evidenceAuditor("alpha beta gamma", ["beta", "delta"]);
+if (!verification.verified_quotes[0].verified || verification.verified_quotes[0].start_char !== 6) {
+  throw new Error("Evidence auditor did not verify an exact quote.");
+}
+if (verification.failed_quotes[0].quote !== "delta") {
+  throw new Error("Evidence auditor did not flag a failed quote.");
+}
+
+const scout = context.removeFailedScoutQuotes(
+  {
+    scout_codes: [
+      {
+        temporary_code_name: "Found idea",
+        definition: "A test idea.",
+        supporting_quotes: ["beta", "delta"],
+        confidence: "high"
+      }
+    ]
+  },
+  verification
+);
+if (scout.scout_codes[0].supporting_quotes.length !== 1 || scout.scout_codes[0].supporting_quotes[0] !== "beta") {
+  throw new Error("Failed scout quotes were not removed.");
+}
+
+const exportPayload = context.exportPayload();
+if (!Array.isArray(exportPayload.data) || !Array.isArray(exportPayload.audit_log) || !Array.isArray(exportPayload.review_items)) {
+  throw new Error("Export payload is missing workflow arrays.");
+}
+
 console.log("startup ok");
