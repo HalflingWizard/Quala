@@ -547,7 +547,6 @@
         <div class="stack">
           <button class="navBtn active" data-view="workspace">Workspace <span class="pill" id="queuePill">0 docs</span></button>
           <button class="navBtn" data-view="codebook">Codebook <span class="pill" id="codePill">0 codes</span></button>
-          <button class="navBtn" data-view="review">Human review <span class="pill">check</span></button>
           <button class="navBtn" data-view="annotations">Annotations <span class="pill" id="annPill">0 quotes</span></button>
           <button class="navBtn" data-view="audit">Audit log <span class="pill">log</span></button>
           <button class="navBtn" data-view="history">History <span class="pill" id="histPill">0</span></button>
@@ -655,14 +654,6 @@
               <tbody id="codebookRows"></tbody>
             </table>
           </div>
-        </section>
-
-        <section id="reviewView" class="view panel hidden">
-          <div>
-            <h2>Human review</h2>
-            <p class="muted small">Approve or reject high impact changes before they become active codes.</p>
-          </div>
-          <div id="reviewList" class="list" style="margin-top: 14px"></div>
         </section>
 
         <section id="annotationsView" class="view panel hidden">
@@ -822,7 +813,10 @@
             <label for="editCodeExample">Example</label>
             <textarea id="editCodeExample"></textarea>
           </div>
-          <button id="saveCodeBtn" class="primary">Save code</button>
+          <div class="row">
+            <button id="saveCodeBtn" class="primary">Save code</button>
+            <button id="deleteCodeBtn" class="danger">Delete code</button>
+          </div>
         </div>
       </div>
     </div>

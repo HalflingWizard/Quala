@@ -109,6 +109,10 @@ if (!elements.mergePrompt) {
   throw new Error("Merge reviewer prompt is not available.");
 }
 
+if (!elements.deleteCodeBtn) {
+  throw new Error("Delete code button is not available.");
+}
+
 if (!elements.auditDocFilter || !elements.auditSortBtn) {
   throw new Error("Audit filter or sort controls are not available.");
 }
@@ -201,14 +205,13 @@ const exportPayload = context.exportPayload();
 if (
   !Array.isArray(exportPayload.data) ||
   !Array.isArray(exportPayload.audit_log) ||
-  !Array.isArray(exportPayload.review_items) ||
   !exportPayload.project ||
   !Array.isArray(exportPayload.project.docs)
 ) {
   throw new Error("Export payload is missing workflow arrays.");
 }
 
-context.buildHumanReviewPacket(
+const updatePacket = context.applyCodebookUpdates(
   { id: "D2" },
   fallbackNovelty,
   { merge_review: [] },
@@ -216,11 +219,11 @@ context.buildHumanReviewPacket(
 );
 const candidatePayload = context.exportPayload();
 const candidate = candidatePayload.codebook.find((code) => code.name === "Found idea");
-if (!candidate || candidate.status !== "needs_human_review") {
-  throw new Error("New scout code was not added as a pending codebook item.");
+if (!candidate || candidate.status !== "active") {
+  throw new Error("New scout code was not added as an active codebook item.");
 }
-if (!candidatePayload.review_items.some((item) => item.candidate_code_id === candidate.code_id)) {
-  throw new Error("Review item was not linked to the pending code.");
+if (!updatePacket.active_codes_added.some((item) => item.code_id === candidate.code_id)) {
+  throw new Error("Codebook update did not report the active code.");
 }
 const coverage = context.computeCoverage();
 if (!coverage[candidate.code_id] || coverage[candidate.code_id] <= 0) {
@@ -257,7 +260,6 @@ const loadedProject = context.projectStateFromPayload({
       quotes: [{ quote: "Example text.", annotations: ["Test code"], code_ids: ["C001"] }]
     }
   ],
-  review_items: [],
   audit_log: []
 });
 if (loadedProject.docs.length !== 1 || loadedProject.codebook[0].name !== "Test code") {

@@ -7,7 +7,6 @@
         codebook: [],
         annotations: [],
         history: [],
-        reviewItems: [],
         auditLog: [],
         preferences: {
           apiKey: "",
@@ -22,7 +21,7 @@
           codebookPrompt:
             "Find possible new concepts in this document without using the current codebook. Focus on ideas that help answer the study question. Every supporting quote must be copied exactly from the document as one contiguous substring. Do not change spelling, punctuation, capitalization, spacing, or wording. Do not paraphrase. Do not add ellipses. Before returning a quote, check that document_text.includes(quote) would be true.",
           refinePrompt:
-            "Compare scout findings with the current codebook. Mark each finding as new_code, already_covered, possible_merge, or needs_human_review. Do not create active codes directly. Use only evidence quotes that were already copied exactly from the document.",
+            "Compare scout findings with the current codebook. Mark each finding as new_code, already_covered, or possible_merge. Use only evidence quotes that were already copied exactly from the document.",
           mergePrompt:
             "Review whether candidate codes should stay separate or merge with existing codes. Argue both sides. Recommend merging only when the meaning, use case, and evidence type are the same and the merged definition would be clearer.",
           annotationPrompt:
@@ -30,7 +29,7 @@
         }
       };
 
-      const CODE_STATUSES = ["candidate", "active", "merged", "dormant", "rejected", "needs_human_review"];
+      const CODE_STATUSES = ["active", "merged", "dormant", "rejected", "needs_human_review", "candidate"];
       const LEGACY_DEFAULT_PROMPTS = {
         lens: [
           "The study is about epilepsy self management, technology for self management, social support, and HCI design opportunities. Prefer surprising, novel, specific, and useful codes. Avoid ordinary facts that someone could learn from a quick web search.",
@@ -74,6 +73,7 @@
         copyCodebookBtn: $("copyCodebookBtn"),
         currentTitle: $("currentTitle"),
         deleteDocBtn: $("deleteDocBtn"),
+        deleteCodeBtn: $("deleteCodeBtn"),
         docId: $("docId"),
         docList: $("docList"),
         docSource: $("docSource"),
@@ -104,7 +104,6 @@
         queuePill: $("queuePill"),
         reasoning: $("reasoning"),
         refinePrompt: $("refinePrompt"),
-        reviewList: $("reviewList"),
         auditList: $("auditList"),
         auditSortBtn: $("auditSortBtn"),
         saveBtn: $("saveBtn"),
@@ -136,7 +135,6 @@
           };
           loaded.codebook = (loaded.codebook || []).map((code, index) => normalizeCode(code, index));
           loaded.annotations = (loaded.annotations || []).map(normalizeAnnotationDoc);
-          loaded.reviewItems = loaded.reviewItems || [];
           loaded.auditLog = loaded.auditLog || [];
           return loaded;
         } catch {
@@ -154,12 +152,13 @@
 
       function normalizeCode(code, index = 0) {
         const name = String(code.name || code.code || "").trim();
+        const loadedStatus = CODE_STATUSES.includes(code.status) ? code.status : "active";
         return {
           id: code.id || uid(),
           code_id: code.code_id || code.codeId || `C${String(index + 1).padStart(3, "0")}`,
           name,
           definition: String(code.definition || "").trim(),
-          status: CODE_STATUSES.includes(code.status) ? code.status : "active",
+          status: loadedStatus === "needs_human_review" || loadedStatus === "candidate" ? "active" : loadedStatus,
           created_from_doc: code.created_from_doc || code.createdFromDoc || "",
           example_quotes: Array.isArray(code.example_quotes)
             ? code.example_quotes
@@ -261,7 +260,6 @@
         renderDocs();
         renderCodebook();
         renderAnnotations();
-        renderReview();
         renderAudit();
         renderHistory();
         persistState();
@@ -342,14 +340,14 @@
           els.codebookRows.innerHTML = `<tr><td colspan="5" class="muted">No codes yet.</td></tr>`;
           return;
         }
-        for (const code of state.codebook) {
+        for (const code of state.codebook.filter((item) => item.status !== "rejected")) {
           const row = document.createElement("tr");
           const pct = coverage[code.code_id] || coverage[code.name] || 0;
           row.innerHTML = `
             <td>
               <strong>${escapeHtml(code.name)}</strong>
               <div class="muted tiny">${escapeHtml(code.code_id)}</div>
-              <span class="pill ${code.status === "active" ? "ok" : code.status === "needs_human_review" ? "warn" : ""}">${escapeHtml(code.status)}</span>
+              <span class="pill ${code.status === "active" ? "ok" : ""}">${escapeHtml(code.status)}</span>
             </td>
             <td>${escapeHtml(code.definition || "")}</td>
             <td><div class="quote small">${escapeHtml(code.example_quotes?.[0]?.quote || "")}</div></td>
@@ -360,44 +358,6 @@
         }
         els.codebookRows.querySelectorAll("[data-edit-code]").forEach((btn) => {
           btn.addEventListener("click", () => openCodeModal(btn.dataset.editCode));
-        });
-      }
-
-      function renderReview() {
-        if (!els.reviewList) return;
-        els.reviewList.innerHTML = "";
-        const openItems = state.reviewItems.filter((item) => item.status === "open");
-        if (!openItems.length) {
-          els.reviewList.innerHTML = `<div class="item muted small">No human review items.</div>`;
-          return;
-        }
-        for (const item of openItems) {
-          const div = document.createElement("div");
-          div.className = "item";
-          const quotes = (item.evidence_quotes || [])
-            .map((quote) => `<div class="quote small" style="margin-top: 8px">${escapeHtml(quote)}</div>`)
-            .join("");
-          div.innerHTML = `
-            <div class="itemTitle">
-              <span>${escapeHtml(item.type.replaceAll("_", " "))}</span>
-              <span class="pill">${escapeHtml(item.doc_id || "")}</span>
-            </div>
-            <h3 style="margin-top: 8px">${escapeHtml(item.suggested_code?.name || item.scout_code_name || "")}</h3>
-            <p class="small">${escapeHtml(item.suggested_code?.definition || "")}</p>
-            ${quotes}
-            <p class="muted small" style="margin-top: 8px">${escapeHtml(item.rationale || "")}</p>
-            <div class="row" style="margin-top: 8px">
-              <button class="primary" data-approve-review="${escapeHtml(item.id)}">Approve</button>
-              <button data-reject-review="${escapeHtml(item.id)}">Reject</button>
-            </div>
-          `;
-          els.reviewList.appendChild(div);
-        }
-        els.reviewList.querySelectorAll("[data-approve-review]").forEach((btn) => {
-          btn.addEventListener("click", () => approveReviewItem(btn.dataset.approveReview));
-        });
-        els.reviewList.querySelectorAll("[data-reject-review]").forEach((btn) => {
-          btn.addEventListener("click", () => rejectReviewItem(btn.dataset.rejectReview));
         });
       }
 
@@ -578,7 +538,6 @@
           selectedDocId: state.selectedDocId,
           codebook: clone(state.codebook),
           annotations: clone(state.annotations),
-          reviewItems: clone(state.reviewItems),
           auditLog: clone(state.auditLog)
         });
         if (state.history.length > 60) state.history.shift();
@@ -591,7 +550,6 @@
         state.selectedDocId = entry.selectedDocId;
         state.codebook = clone(entry.codebook);
         state.annotations = clone(entry.annotations);
-        state.reviewItems = clone(entry.reviewItems || []);
         state.auditLog = clone(entry.auditLog || []);
         render();
         saveState("Snapshot restored.");
@@ -690,7 +648,6 @@
           codebook: (payload.codebook || project.codebook || []).map((code, index) => normalizeCode(code, index)),
           annotations: normalizeLoadedAnnotations(payload.data || project.annotations || payload.annotations || []),
           history: project.history || payload.history || [],
-          reviewItems: payload.review_items || project.reviewItems || payload.reviewItems || [],
           auditLog: payload.audit_log || project.auditLog || payload.auditLog || []
         };
         if (!loaded.docs.some((doc) => doc.id === loaded.selectedDocId)) {
@@ -911,7 +868,7 @@
                   additionalProperties: false,
                   properties: {
                     scout_code_name: { type: "string" },
-                    decision: { type: "string", enum: ["new_code", "already_covered", "possible_merge", "needs_human_review"] },
+                    decision: { type: "string", enum: ["new_code", "already_covered", "possible_merge"] },
                     matched_code_id: { type: "string" },
                     suggested_code: {
                       type: "object",
@@ -952,7 +909,7 @@
                     existing_code_id: { type: "string" },
                     argument_for_merge: { type: "string" },
                     argument_against_merge: { type: "string" },
-                    recommendation: { type: "string", enum: ["merge", "keep_separate", "needs_human_review"] },
+                    recommendation: { type: "string", enum: ["merge", "keep_separate"] },
                     confidence: { type: "string", enum: ["low", "medium", "high"] }
                   },
                   required: [
@@ -1063,7 +1020,7 @@
                 novelty_instruction: state.preferences.refinePrompt,
                 scout_codes: scoutOutput.scout_codes || [],
                 current_codebook: currentCodebookForModel(),
-                allowed_decisions: ["new_code", "already_covered", "possible_merge", "needs_human_review"]
+                allowed_decisions: ["new_code", "already_covered", "possible_merge"]
               },
               null,
               2
@@ -1074,7 +1031,7 @@
 
       function buildMergePrompt(noveltyOutput) {
         const candidates = (noveltyOutput.novelty_decisions || []).filter((item) =>
-          ["new_code", "possible_merge", "needs_human_review"].includes(item.decision)
+          ["new_code", "possible_merge"].includes(item.decision)
         );
         return [
           {
@@ -1212,7 +1169,7 @@
           createSnapshot("After processing queue");
           setProgress(100);
           setStatus("Queue processed.");
-          log("Queue processed. Review pending codebook changes before using those codes as active codes.");
+          log("Queue processed. Review the codebook and edit or delete codes if needed.");
           render();
         } finally {
           activeRun = null;
@@ -1293,7 +1250,7 @@
         });
         stepProgress(78);
         const needsMergeReview = (verifiedNovelty.novelty_decisions || []).some((item) =>
-          ["new_code", "possible_merge", "needs_human_review"].includes(item.decision)
+          ["new_code", "possible_merge"].includes(item.decision)
         );
         log(needsMergeReview ? "Running merge reviewer." : "No merge review needed.");
         const mergePrompt = needsMergeReview ? buildMergePrompt(verifiedNovelty) : null;
@@ -1305,21 +1262,21 @@
           title: "Merge reviewer",
           summary: needsMergeReview ? summarizeMergeOutput(mergeOutput) : "Skipped because there were no new or similar code decisions.",
           stats: mergeStats(mergeOutput),
-          input: needsMergeReview ? { prompt: mergePrompt } : { reason: "No new, possible merge, or needs review decisions." },
+          input: needsMergeReview ? { prompt: mergePrompt } : { reason: "No new or possible merge decisions." },
           output: mergeOutput
         });
-        const reviewPacket = buildHumanReviewPacket(doc, verifiedNovelty, mergeOutput, verification);
+        const updatePacket = applyCodebookUpdates(doc, verifiedNovelty, mergeOutput, verification);
         addAuditLog({
           doc_id: doc.id,
           event_type: "codebook_update",
           title: "Codebook update",
-          summary: `${reviewPacket.review_count} review items created. ${reviewPacket.candidate_codes.length} candidate codes added to the codebook.`,
-          stats: codebookUpdateStats(reviewPacket),
+          summary: `${updatePacket.active_codes_added.length} active codes added. ${updatePacket.merged_codes.length} merge updates applied.`,
+          stats: codebookUpdateStats(updatePacket),
           input: {
             novelty_output: verifiedNovelty,
             merge_output: mergeOutput
           },
-          output: reviewPacket
+          output: updatePacket
         });
         updateDormantStatuses();
         doc.status = "coded";
@@ -1328,7 +1285,7 @@
           event_type: "document_processed",
           title: "Document complete",
           summary: "Processing loop completed for this document.",
-          reason: "Scout, applier, verifier, novelty detector, merge reviewer, and review packet completed."
+          reason: "Scout, applier, verifier, novelty detector, merge reviewer, and codebook update completed."
         });
         stepProgress(100);
         log(`Processed ${doc.id}.`);
@@ -1381,8 +1338,7 @@
           decisions: decisions.length,
           new_code: decisions.filter((item) => item.decision === "new_code").length,
           already_covered: decisions.filter((item) => item.decision === "already_covered").length,
-          possible_merge: decisions.filter((item) => item.decision === "possible_merge").length,
-          needs_human_review: decisions.filter((item) => item.decision === "needs_human_review").length
+          possible_merge: decisions.filter((item) => item.decision === "possible_merge").length
         };
       }
 
@@ -1396,24 +1352,24 @@
         return {
           reviews: reviews.length,
           merge: reviews.filter((item) => item.recommendation === "merge").length,
-          keep_separate: reviews.filter((item) => item.recommendation === "keep_separate").length,
-          needs_human_review: reviews.filter((item) => item.recommendation === "needs_human_review").length
+          keep_separate: reviews.filter((item) => item.recommendation === "keep_separate").length
         };
       }
 
       function summarizeMergeOutput(output) {
         const stats = mergeStats(output);
-        return `${stats.reviews} merge reviews. ${stats.merge} merge, ${stats.keep_separate} keep separate, ${stats.needs_human_review} need review.`;
+        return `${stats.reviews} merge reviews. ${stats.merge} merge, ${stats.keep_separate} keep separate.`;
       }
 
       function codebookUpdateStats(packet) {
         const byStatus = {};
-        for (const code of packet.candidate_codes || []) {
+        const codes = packet.active_codes_added || [];
+        for (const code of codes) {
           byStatus[code.status] = (byStatus[code.status] || 0) + 1;
         }
         return {
-          review_items_created: packet.review_count || 0,
-          candidate_codes_added: (packet.candidate_codes || []).length,
+          active_codes_added: codes.length,
+          merged_codes: (packet.merged_codes || []).length,
           ...byStatus
         };
       }
@@ -1500,7 +1456,7 @@
           if (!key || decidedNames.has(key) || !scout.supporting_quotes?.length) continue;
           decisions.push({
             scout_code_name: scout.temporary_code_name,
-            decision: "needs_human_review",
+            decision: "new_code",
             matched_code_id: "",
             suggested_code: {
               name: scout.temporary_code_name,
@@ -1570,62 +1526,81 @@
         state.annotations.push(docOutput);
       }
 
-      function buildHumanReviewPacket(doc, noveltyOutput, mergeOutput, verification) {
-        const mergeByName = new Map((mergeOutput.merge_review || []).map((item) => [item.candidate_code_name.toLowerCase(), item]));
-        let added = 0;
-        const candidateCodes = [];
+      function applyCodebookUpdates(doc, noveltyOutput, mergeOutput, verification) {
+        const mergeByName = new Map(
+          (mergeOutput.merge_review || []).map((item) => [String(item.candidate_code_name || "").toLowerCase(), item])
+        );
+        const activeCodesAdded = [];
+        const mergedCodes = [];
         for (const item of noveltyOutput.novelty_decisions || []) {
           if (item.decision === "already_covered") continue;
           if (!item.evidence_quotes?.length) continue;
-          const merge = mergeByName.get((item.suggested_code?.name || item.scout_code_name || "").toLowerCase());
-          const type = merge?.recommendation === "merge" ? "merge_decision" : "new_code";
-          const candidateCodeId = type === "new_code" ? ensureCandidateCode(doc, item, verification) : "";
-          const candidateCode = state.codebook.find((code) => code.code_id === candidateCodeId);
-          if (candidateCode) {
-            candidateCodes.push({
-              code_id: candidateCode.code_id,
-              name: candidateCode.name,
-              status: candidateCode.status
+          const merge =
+            mergeByName.get(String(item.suggested_code?.name || "").toLowerCase()) ||
+            mergeByName.get(String(item.scout_code_name || "").toLowerCase());
+          if (merge?.recommendation === "merge" && merge.existing_code_id) {
+            const merged = applyMergeUpdate(doc, item, merge, verification);
+            if (merged) mergedCodes.push(merged);
+            continue;
+          }
+          const code = ensureActiveCode(doc, item, verification);
+          if (code) {
+            activeCodesAdded.push({
+              code_id: code.code_id,
+              name: code.name,
+              status: code.status
             });
           }
-          const reviewItem = {
-            id: uid(),
-            status: "open",
-            type,
-            candidate_code_id: candidateCodeId,
-            doc_id: doc.id,
-            scout_code_name: item.scout_code_name,
-            suggested_code: item.suggested_code,
-            evidence_quotes: item.evidence_quotes,
-            verification: verification.verified_quotes.filter((quote) => item.evidence_quotes.includes(quote.quote)),
-            novelty_decision: item,
-            merge_review: merge || null,
-            system_recommendation: merge?.recommendation === "merge" ? "review_merge" : "approve",
-            rationale: [item.rationale, merge?.argument_for_merge, merge?.argument_against_merge].filter(Boolean).join(" ")
-          };
-          state.reviewItems.push(reviewItem);
-          added += 1;
-        }
-        if (added) {
-          addAuditLog({
-            doc_id: doc.id,
-            event_type: "human_review_requested",
-            reason: `${added} codebook change${added === 1 ? "" : "s"} need human review.`
-          });
         }
         return {
-          review_count: added,
-          candidate_codes: candidateCodes
+          active_codes_added: activeCodesAdded,
+          merged_codes: mergedCodes
         };
       }
 
-      function ensureCandidateCode(doc, noveltyItem, verification) {
+      function applyMergeUpdate(doc, noveltyItem, merge, verification) {
+        const existing = state.codebook.find((code) => code.code_id === merge.existing_code_id);
+        if (!existing) return null;
+        const verifiedQuotes = verification.verified_quotes.filter((quote) => (noveltyItem.evidence_quotes || []).includes(quote.quote));
+        existing.status = "active";
+        existing.example_quotes = [
+          ...(existing.example_quotes || []),
+          ...verifiedQuotes.map((quote) => ({
+            doc_id: doc.id,
+            quote: quote.quote,
+            verified: quote.verified,
+            start_char: quote.start_char,
+            end_char: quote.end_char
+          }))
+        ];
+        existing.history = [
+          ...(existing.history || []),
+          {
+            event: "merged_candidate",
+            doc_id: doc.id,
+            reason: [merge.argument_for_merge, noveltyItem.rationale].filter(Boolean).join(" ")
+          }
+        ];
+        addAuditLog({
+          doc_id: doc.id,
+          event_type: "merge_applied",
+          code_id: existing.code_id,
+          reason: `Merged ${noveltyItem.suggested_code?.name || noveltyItem.scout_code_name} into ${existing.name}.`
+        });
+        return {
+          code_id: existing.code_id,
+          name: existing.name,
+          status: existing.status
+        };
+      }
+
+      function ensureActiveCode(doc, noveltyItem, verification) {
         const name = String(noveltyItem.suggested_code?.name || noveltyItem.scout_code_name || "").trim();
-        if (!name) return "";
+        if (!name) return null;
         const existing = state.codebook.find((code) => code.name.toLowerCase() === name.toLowerCase());
         if (existing) {
-          if (existing.status === "candidate") existing.status = "needs_human_review";
-          return existing.code_id;
+          if (existing.status !== "active") existing.status = "active";
+          return existing;
         }
         const codeId = nextCodeId();
         const verifiedQuotes = verification.verified_quotes.filter((quote) => (noveltyItem.evidence_quotes || []).includes(quote.quote));
@@ -1634,7 +1609,7 @@
           code_id: codeId,
           name,
           definition: String(noveltyItem.suggested_code?.definition || "").trim(),
-          status: "needs_human_review",
+          status: "active",
           created_from_doc: doc.id,
           example_quotes: verifiedQuotes.map((quote) => ({
             doc_id: doc.id,
@@ -1645,19 +1620,19 @@
           })),
           history: [
             {
-              event: "proposed",
+              event: "created",
               doc_id: doc.id,
-              reason: noveltyItem.rationale || "Proposed by novelty detector."
+              reason: noveltyItem.rationale || "Created from verified scout evidence."
             }
           ]
         });
         addAuditLog({
           doc_id: doc.id,
-          event_type: "candidate_code_added",
+          event_type: "active_code_added",
           code_id: codeId,
-          reason: `Candidate code ${name} needs human review.`
+          reason: `Active code ${name} added from verified scout evidence.`
         });
-        return codeId;
+        return state.codebook[state.codebook.length - 1];
       }
 
       function nextCodeId() {
@@ -1668,139 +1643,13 @@
         return `C${String(max + 1).padStart(3, "0")}`;
       }
 
-      function approveReviewItem(id) {
-        const item = state.reviewItems.find((review) => review.id === id);
-        if (!item || item.status !== "open") return;
-        if (item.type === "merge_decision" && item.merge_review?.existing_code_id) {
-          const existing = state.codebook.find((code) => code.code_id === item.merge_review.existing_code_id);
-          if (!existing) return;
-          existing.definition = item.suggested_code.definition || existing.definition;
-          existing.status = "active";
-          existing.example_quotes = [
-            ...(existing.example_quotes || []),
-            ...item.verification.map((quote) => ({
-              doc_id: item.doc_id,
-              quote: quote.quote,
-              verified: quote.verified,
-              start_char: quote.start_char,
-              end_char: quote.end_char
-            }))
-          ];
-          existing.history = [
-            ...(existing.history || []),
-            {
-              event: "merged_candidate",
-              doc_id: item.doc_id,
-              reason: item.rationale || `Merged candidate ${item.suggested_code.name}.`
-            }
-          ];
-          item.status = "approved";
-          item.decided_at = new Date().toISOString();
-          addAuditLog({
-            doc_id: item.doc_id,
-            event_type: "merge_approved",
-            code_id: existing.code_id,
-            reason: `Human merged ${item.suggested_code.name} into ${existing.name}.`,
-            approved_by: "human"
-          });
-          createSnapshot(`Merged ${item.suggested_code.name}`);
-          render();
-          return;
-        }
-        const candidate = state.codebook.find((code) => code.code_id === item.candidate_code_id);
-        if (candidate) {
-          candidate.name = item.suggested_code.name;
-          candidate.definition = item.suggested_code.definition;
-          candidate.status = "active";
-          candidate.history = [
-            ...(candidate.history || []),
-            {
-              event: "approved",
-              doc_id: item.doc_id,
-              reason: item.rationale || "Approved from human review."
-            }
-          ];
-          item.status = "approved";
-          item.decided_at = new Date().toISOString();
-          addAuditLog({
-            doc_id: item.doc_id,
-            event_type: "new_code_approved",
-            code_id: candidate.code_id,
-            reason: `Human approved ${candidate.name}.`,
-            approved_by: "human"
-          });
-          createSnapshot(`Approved ${candidate.name}`);
-          render();
-          return;
-        }
-        const codeId = nextCodeId();
-        state.codebook.push({
-          id: uid(),
-          code_id: codeId,
-          name: item.suggested_code.name,
-          definition: item.suggested_code.definition,
-          status: "active",
-          created_from_doc: item.doc_id,
-          example_quotes: item.verification.map((quote) => ({
-            doc_id: item.doc_id,
-            quote: quote.quote,
-            verified: quote.verified,
-            start_char: quote.start_char,
-            end_char: quote.end_char
-          })),
-          history: [
-            {
-              event: "created",
-              doc_id: item.doc_id,
-              reason: item.rationale || "Approved from human review."
-            }
-          ]
-        });
-        item.status = "approved";
-        item.decided_at = new Date().toISOString();
-        addAuditLog({
-          doc_id: item.doc_id,
-          event_type: "new_code_added",
-          code_id: codeId,
-          reason: `Human approved ${item.suggested_code.name}.`,
-          approved_by: "human"
-        });
-        createSnapshot(`Approved ${item.suggested_code.name}`);
-        render();
-      }
-
-      function rejectReviewItem(id) {
-        const item = state.reviewItems.find((review) => review.id === id);
-        if (!item || item.status !== "open") return;
-        const candidate = state.codebook.find((code) => code.code_id === item.candidate_code_id);
-        if (candidate && candidate.status === "needs_human_review") {
-          candidate.status = "rejected";
-          candidate.history = [
-            ...(candidate.history || []),
-            {
-              event: "rejected",
-              doc_id: item.doc_id,
-              reason: "Rejected by human review."
-            }
-          ];
-        }
-        item.status = "rejected";
-        item.decided_at = new Date().toISOString();
-        addAuditLog({
-          doc_id: item.doc_id,
-          event_type: "review_item_rejected",
-          reason: `Human rejected ${item.suggested_code?.name || item.scout_code_name}.`,
-          approved_by: "human"
-        });
-        createSnapshot(`Rejected ${item.suggested_code?.name || item.scout_code_name}`);
-        render();
-      }
-
       function updateDormantStatuses() {
         const activeNames = new Set(state.annotations.flatMap((doc) => doc.annotation || []));
         for (const code of state.codebook) {
-          if (code.status === "active" && !activeNames.has(code.name)) code.status = "dormant";
-          if (code.status === "dormant" && activeNames.has(code.name)) code.status = "active";
+          const hasVerifiedExample = (code.example_quotes || []).some((quote) => quote.verified !== false);
+          const hasAnnotation = activeNames.has(code.name);
+          if (code.status === "active" && !hasAnnotation && !hasVerifiedExample) code.status = "dormant";
+          if (code.status === "dormant" && (hasAnnotation || hasVerifiedExample)) code.status = "active";
         }
       }
 
@@ -1855,7 +1704,6 @@
             preferences: safePreferences
           },
           codebook: state.codebook.map(({ id, ...rest }) => rest),
-          review_items: state.reviewItems,
           audit_log: state.auditLog,
           data: state.annotations.map((doc) => ({
             id: doc.id,
@@ -2049,6 +1897,30 @@
           approved_by: "human"
         });
         createSnapshot(`Edited code ${next.name}`);
+        els.codeModal.classList.remove("open");
+        render();
+      });
+
+      els.deleteCodeBtn.addEventListener("click", () => {
+        const id = els.editCodeId.value;
+        const code = state.codebook.find((item) => item.id === id);
+        if (!code) return;
+        code.status = "rejected";
+        code.history = [
+          ...(code.history || []),
+          {
+            event: "rejected",
+            doc_id: "",
+            reason: "Deleted by user."
+          }
+        ];
+        addAuditLog({
+          event_type: "code_rejected",
+          code_id: code.code_id,
+          reason: `User deleted ${code.name}.`,
+          approved_by: "human"
+        });
+        createSnapshot(`Deleted code ${code.name}`);
         els.codeModal.classList.remove("open");
         render();
       });

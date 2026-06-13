@@ -14,8 +14,8 @@ It helps a researcher build a codebook over a queue of datapoints, annotate exac
 - Process all queued datapoints with one queue run.
 - Check every model quote with a non LLM verifier using exact substring matching.
 - Run a novelty detector and merge reviewer before any codebook change.
-- Add proposed codes to the codebook as needing human review, then send new codes and merge decisions to Human review before they become active.
-- Mark codes as active, dormant, merged, rejected, candidate, or needing review. Codes are not deleted during the document loop.
+- Add verified new codes directly to the active codebook.
+- Mark codes as active, dormant, merged, or rejected. Deleted codes are marked rejected.
 - Calculate codebook coverage from verified codebook evidence and verified annotation links.
 - Annotate exact verbatim quotes with code names while preserving stable code IDs.
 - Save snapshots before and after processing so a researcher can undo mistakes.
@@ -48,8 +48,8 @@ node smoke-test.js
 6. Go to Workspace.
 7. Add datapoints by paste or open TXT and DOCX files.
 8. Process the queue.
-9. Open Human review and approve or reject suggested codebook changes. Proposed codes stay inactive until approval.
-10. Review the codebook, annotations, and audit log. Filter the audit by document when you need one document's processing history.
+9. Review the codebook and edit or delete codes when needed.
+10. Review annotations and the audit log. Filter the audit by document when you need one document's processing history.
 11. Edit or restore from History when needed.
 12. Export JSON.
 
@@ -79,7 +79,7 @@ The exported file is designed to work with tools that expect datapoints with an 
         {
           "event": "created",
           "doc_id": "D1",
-          "reason": "Human approved a verified new code."
+          "reason": "Created from verified scout evidence."
         }
       ]
     }
