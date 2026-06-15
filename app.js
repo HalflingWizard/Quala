@@ -335,14 +335,21 @@
 
       function renderCodebook() {
         els.codebookRows.innerHTML = "";
-        const coverage = computeCoverage();
         if (!state.codebook.length) {
           els.codebookRows.innerHTML = `<tr><td colspan="5" class="muted">No codes yet.</td></tr>`;
           return;
         }
-        for (const code of state.codebook.filter((item) => item.status !== "rejected")) {
+        const visibleCodes = state.codebook
+          .filter((item) => item.status !== "rejected")
+          .map((code) => ({
+            code,
+            coverage: coverageForCode(code),
+            example: bestQuoteForCode(code)
+          }));
+        sortCodebookRows(visibleCodes);
+        for (const item of visibleCodes) {
+          const { code, coverage, example } = item;
           const row = document.createElement("tr");
-          const pct = coverage[code.code_id] || coverage[code.name] || 0;
           row.innerHTML = `
             <td>
               <strong>${escapeHtml(code.name)}</strong>
@@ -350,8 +357,14 @@
               <span class="pill ${code.status === "active" ? "ok" : ""}">${escapeHtml(code.status)}</span>
             </td>
             <td>${escapeHtml(code.definition || "")}</td>
-            <td><div class="quote small">${escapeHtml(code.example_quotes?.[0]?.quote || "")}</div></td>
-            <td><span class="pill">${pct}%</span></td>
+            <td>
+              <div class="quote small">${escapeHtml(example?.quote || "")}</div>
+              ${example?.doc_id ? `<div class="muted tiny" style="margin-top: 4px">Datapoint ${escapeHtml(example.doc_id)}</div>` : ""}
+            </td>
+            <td>
+              <span class="pill">${coverage.percent}%</span>
+              <div class="muted tiny" style="margin-top: 4px">${coverage.count}/${coverage.total} datapoints</div>
+            </td>
             <td><button data-edit-code="${escapeHtml(code.id)}">Edit</button></td>
           `;
           els.codebookRows.appendChild(row);
@@ -359,6 +372,15 @@
         els.codebookRows.querySelectorAll("[data-edit-code]").forEach((btn) => {
           btn.addEventListener("click", () => openCodeModal(btn.dataset.editCode));
         });
+      }
+
+      function sortCodebookRows(rows) {
+        return rows.sort(
+          (a, b) =>
+            b.coverage.count - a.coverage.count ||
+            b.coverage.percent - a.coverage.percent ||
+            a.code.name.localeCompare(b.code.name)
+        );
       }
 
       function renderAudit() {
@@ -556,26 +578,57 @@
       }
 
       function computeCoverage() {
-        const total = Math.max(1, state.docs.length);
         const coverage = {};
         for (const code of state.codebook) {
-          const docIds = new Set();
-          for (const example of code.example_quotes || []) {
-            const docId = example.doc_id || code.created_from_doc;
-            if (docId && example.verified !== false) docIds.add(docId);
-          }
-          for (const docAnn of state.annotations) {
-            for (const quote of docAnn.quotes || []) {
-              const hasCodeId = (quote.code_ids || []).includes(code.code_id);
-              const hasCodeName = (quote.annotations || []).includes(code.name);
-              if (hasCodeId || hasCodeName) docIds.add(docAnn.id);
-            }
-          }
-          const pct = Math.round((docIds.size / total) * 100);
-          coverage[code.code_id] = pct;
-          coverage[code.name] = pct;
+          const details = coverageForCode(code);
+          coverage[code.code_id] = details.percent;
+          coverage[code.name] = details.percent;
         }
         return coverage;
+      }
+
+      function coverageForCode(code, docs = state.docs, annotations = state.annotations) {
+        const docIds = new Set();
+        const knownDocIds = new Set(docs.map((doc) => doc.id));
+        const addDocId = (docId) => {
+          if (!docId || (knownDocIds.size && !knownDocIds.has(docId))) return;
+          docIds.add(docId);
+        };
+        for (const example of code.example_quotes || []) {
+          const docId = example.doc_id || code.created_from_doc;
+          if (example.verified !== false) addDocId(docId);
+        }
+        for (const docAnn of annotations) {
+          for (const quote of docAnn.quotes || []) {
+            if (quoteMatchesCode(quote, code)) addDocId(docAnn.id);
+          }
+        }
+        const total = Math.max(1, docs.length);
+        return {
+          count: docIds.size,
+          total,
+          percent: Math.round((docIds.size / total) * 100)
+        };
+      }
+
+      function bestQuoteForCode(code, annotations = state.annotations) {
+        const candidates = (code.example_quotes || [])
+          .filter((example) => example.verified !== false && example.quote)
+          .map((example) => ({
+            quote: example.quote,
+            doc_id: example.doc_id || code.created_from_doc || ""
+          }));
+        for (const docAnn of annotations) {
+          for (const quote of docAnn.quotes || []) {
+            if (!quote.quote || !quoteMatchesCode(quote, code)) continue;
+            candidates.push({ quote: quote.quote, doc_id: docAnn.id });
+          }
+        }
+        return candidates.sort((a, b) => b.quote.trim().length - a.quote.trim().length)[0] || null;
+      }
+
+      function quoteMatchesCode(quote, code) {
+        return (quote.code_ids || []).includes(code.code_id) || (quote.annotations || []).includes(code.name);
       }
 
       function addDocuments(docs) {
@@ -1197,44 +1250,14 @@
         });
         ensureProcessingActive(signal);
         stepProgress(28);
-        const hasCodebook = codebookForModel().length > 0;
-        log(hasCodebook ? "Running codebook applier." : "No active codebook yet. Skipping codebook applier.");
-        const applierPrompt = hasCodebook ? buildApplierPrompt(doc) : null;
-        const applierOutput = hasCodebook
-          ? await callOpenAI(applierPrompt, applierSchema(), signal)
-          : { doc_id: doc.id, applied_codes: [], codes_with_no_instance: [] };
-        addAuditLog({
-          doc_id: doc.id,
-          event_type: "codebook_applier",
-          title: "Codebook applier",
-          summary: hasCodebook ? summarizeApplierOutput(applierOutput) : "Skipped because there were no active codebook entries.",
-          stats: applierStats(applierOutput, codebookForModel().length),
-          input: hasCodebook ? { prompt: applierPrompt } : { reason: "No active codebook entries." },
-          output: applierOutput
-        });
-        ensureProcessingActive(signal);
-        stepProgress(46);
-        log("Checking exact quotes.");
-        const allQuotes = collectQuotes(scoutOutput, applierOutput);
-        const verification = evidenceAuditor(doc.text, allQuotes);
-        const verifiedScout = removeFailedScoutQuotes(scoutOutput, verification);
-        const verifiedApplier = removeFailedApplierQuotes(applierOutput, verification);
-        addAuditLog({
-          doc_id: doc.id,
-          event_type: "evidence_auditor",
-          title: "Evidence auditor",
-          summary: `${verification.verified_quotes.length} quotes accepted. ${verification.failed_quotes.length} quotes rejected.`,
-          stats: evidenceStats(allQuotes, verification),
-          input: { quotes: allQuotes },
-          output: verification
-        });
-        applyAnnotationResult(doc, verifiedApplier);
-        stepProgress(62);
+        const scoutQuotes = collectQuotes(scoutOutput, { applied_codes: [] });
+        const scoutVerification = evidenceAuditor(doc.text, scoutQuotes);
+        const verifiedScout = removeFailedScoutQuotes(scoutOutput, scoutVerification);
         log("Running novelty detector.");
         const noveltyPrompt = buildNoveltyPrompt(doc, verifiedScout);
         const noveltyOutput = await callOpenAI(noveltyPrompt, noveltySchema(), signal);
         ensureProcessingActive(signal);
-        const verifiedNovelty = removeFailedNoveltyQuotes(noveltyOutput, verification, verifiedScout);
+        const verifiedNovelty = removeFailedNoveltyQuotes(noveltyOutput, scoutVerification, verifiedScout);
         addAuditLog({
           doc_id: doc.id,
           event_type: "novelty_detector",
@@ -1248,7 +1271,7 @@
           },
           output: verifiedNovelty
         });
-        stepProgress(78);
+        stepProgress(46);
         const needsMergeReview = (verifiedNovelty.novelty_decisions || []).some((item) =>
           ["new_code", "possible_merge"].includes(item.decision)
         );
@@ -1265,7 +1288,7 @@
           input: needsMergeReview ? { prompt: mergePrompt } : { reason: "No new or possible merge decisions." },
           output: mergeOutput
         });
-        const updatePacket = applyCodebookUpdates(doc, verifiedNovelty, mergeOutput, verification);
+        const updatePacket = applyCodebookUpdates(doc, verifiedNovelty, mergeOutput, scoutVerification);
         addAuditLog({
           doc_id: doc.id,
           event_type: "codebook_update",
@@ -1278,6 +1301,38 @@
           },
           output: updatePacket
         });
+        stepProgress(68);
+        const hasCodebook = codebookForModel().length > 0;
+        log(hasCodebook ? "Running codebook applier." : "No active codebook yet. Skipping codebook applier.");
+        const applierPrompt = hasCodebook ? buildApplierPrompt(doc) : null;
+        const applierOutput = hasCodebook
+          ? await callOpenAI(applierPrompt, applierSchema(), signal)
+          : { doc_id: doc.id, applied_codes: [], codes_with_no_instance: [] };
+        addAuditLog({
+          doc_id: doc.id,
+          event_type: "codebook_applier",
+          title: "Codebook applier",
+          summary: hasCodebook ? summarizeApplierOutput(applierOutput) : "Skipped because there were no active codebook entries.",
+          stats: applierStats(applierOutput, codebookForModel().length),
+          input: hasCodebook ? { prompt: applierPrompt } : { reason: "No active codebook entries." },
+          output: applierOutput
+        });
+        ensureProcessingActive(signal);
+        stepProgress(84);
+        log("Checking exact quotes.");
+        const allQuotes = collectQuotes(scoutOutput, applierOutput);
+        const verification = evidenceAuditor(doc.text, allQuotes);
+        const verifiedApplier = removeFailedApplierQuotes(applierOutput, verification);
+        addAuditLog({
+          doc_id: doc.id,
+          event_type: "evidence_auditor",
+          title: "Evidence auditor",
+          summary: `${verification.verified_quotes.length} quotes accepted. ${verification.failed_quotes.length} quotes rejected.`,
+          stats: evidenceStats(allQuotes, verification),
+          input: { quotes: allQuotes },
+          output: verification
+        });
+        applyAnnotationResult(doc, verifiedApplier);
         updateDormantStatuses();
         doc.status = "coded";
         addAuditLog({
@@ -1285,7 +1340,7 @@
           event_type: "document_processed",
           title: "Document complete",
           summary: "Processing loop completed for this document.",
-          reason: "Scout, applier, verifier, novelty detector, merge reviewer, and codebook update completed."
+          reason: "Scout, novelty detector, merge reviewer, codebook update, applier, and evidence auditor completed."
         });
         stepProgress(100);
         log(`Processed ${doc.id}.`);

@@ -243,6 +243,56 @@ if (coveredPacket.active_codes_added.length !== 0) {
   throw new Error("A valid already_covered decision created a duplicate code.");
 }
 
+const firstDoc = { id: "D1", source: "test.txt", text: "alpha beta gamma" };
+const firstDocApplierInput = JSON.parse(context.buildApplierPrompt(firstDoc)[1].content);
+if (!firstDocApplierInput.codebook.some((code) => code.code_id === existingCode.code_id)) {
+  throw new Error("A code created from the first document was missing from its applier prompt.");
+}
+const finalVerification = context.evidenceAuditor(firstDoc.text, ["beta", "not in document"]);
+const verifiedFirstDocApplier = context.removeFailedApplierQuotes(
+  {
+    doc_id: firstDoc.id,
+    applied_codes: [
+      {
+        code_id: existingCode.code_id,
+        instances: [
+          { quote: "beta", reason: "Exact evidence." },
+          { quote: "not in document", reason: "Invalid evidence." }
+        ]
+      }
+    ],
+    codes_with_no_instance: []
+  },
+  finalVerification
+);
+context.applyAnnotationResult(firstDoc, verifiedFirstDocApplier);
+const firstDocAnnotation = context.exportPayload().data.find((doc) => doc.id === firstDoc.id);
+if (
+  firstDocAnnotation?.quotes.length !== 1 ||
+  firstDocAnnotation.quotes[0].quote !== "beta" ||
+  !firstDocAnnotation.annotation.includes(existingCode.name)
+) {
+  throw new Error("The first document did not save its verified code annotation.");
+}
+
+const processDocSource = context.processDoc.toString();
+const workflowStages = [
+  'event_type: "document_scout"',
+  'event_type: "novelty_detector"',
+  'event_type: "merge_reviewer"',
+  'event_type: "codebook_update"',
+  'event_type: "codebook_applier"',
+  'event_type: "evidence_auditor"'
+];
+let previousStage = -1;
+for (const stage of workflowStages) {
+  const stageIndex = processDocSource.indexOf(stage);
+  if (stageIndex <= previousStage) {
+    throw new Error("Document workflow stages are in the wrong order.");
+  }
+  previousStage = stageIndex;
+}
+
 const exportPayload = context.exportPayload();
 if (
   !Array.isArray(exportPayload.data) ||
@@ -270,6 +320,50 @@ if (!updatePacket.active_codes_added.some((item) => item.code_id === candidate.c
 const coverage = context.computeCoverage();
 if (!coverage[candidate.code_id] || coverage[candidate.code_id] <= 0) {
   throw new Error("Coverage did not count verified codebook evidence.");
+}
+
+const coverageDetails = context.coverageForCode(
+  {
+    code_id: "C100",
+    name: "Prevalent code",
+    created_from_doc: "D1",
+    example_quotes: [{ doc_id: "D1", quote: "short", verified: true }]
+  },
+  [{ id: "D1" }, { id: "D2" }, { id: "D3" }],
+  [
+    {
+      id: "D2",
+      quotes: [{ quote: "A richer quote from another datapoint.", code_ids: ["C100"], annotations: [] }]
+    }
+  ]
+);
+if (coverageDetails.count !== 2 || coverageDetails.total !== 3 || coverageDetails.percent !== 67) {
+  throw new Error("Coverage details did not include the datapoint ratio.");
+}
+const bestQuote = context.bestQuoteForCode(
+  {
+    code_id: "C100",
+    name: "Prevalent code",
+    created_from_doc: "D1",
+    example_quotes: [{ doc_id: "D1", quote: "short", verified: true }]
+  },
+  [
+    {
+      id: "D2",
+      quotes: [{ quote: "A richer quote from another datapoint.", code_ids: ["C100"], annotations: [] }]
+    }
+  ]
+);
+if (bestQuote.quote !== "A richer quote from another datapoint." || bestQuote.doc_id !== "D2") {
+  throw new Error("The richest codebook quote or its datapoint ID was not selected.");
+}
+const sortedCodeRows = context.sortCodebookRows([
+  { code: { name: "Low" }, coverage: { count: 1, percent: 33 } },
+  { code: { name: "Zulu" }, coverage: { count: 2, percent: 67 } },
+  { code: { name: "Alpha" }, coverage: { count: 2, percent: 67 } }
+]);
+if (sortedCodeRows.map((row) => row.code.name).join(",") !== "Alpha,Zulu,Low") {
+  throw new Error("Codebook rows were not sorted by prevalence.");
 }
 
 context.addAuditLog({

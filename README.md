@@ -10,13 +10,14 @@ It helps a researcher build a codebook over a queue of datapoints, annotate exac
 - Store an OpenAI API key in the browser and load available models.
 - Edit the study lens, scout prompt, novelty prompt, merge reviewer prompt, and applier prompt.
 - Run a document scout that finds possible new concepts without seeing the codebook.
-- Run a codebook applier that can only apply existing active codes.
 - Process all queued datapoints with one queue run.
-- Check every model quote with a non LLM verifier using exact substring matching.
 - Run a novelty detector and merge reviewer before any codebook change.
 - Add verified new codes directly to the active codebook.
+- Run a codebook applier after codebook updates so new codes can apply to the same document.
+- Check every model quote with a non LLM verifier using exact substring matching before saving annotations.
 - Mark codes as active, dormant, merged, or rejected. Deleted codes are marked rejected.
-- Calculate codebook coverage from verified codebook evidence and verified annotation links.
+- Sort the codebook by coverage and show both percentage and datapoint ratio.
+- Choose the richest verified example quote for each code and show its datapoint ID.
 - Annotate exact verbatim quotes with code names while preserving stable code IDs.
 - Save snapshots before and after processing so a researcher can undo mistakes.
 - Save an audit log for each document, with filter, time sort, stage summaries, and expandable full prompts and outputs.
