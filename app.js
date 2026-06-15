@@ -1,5 +1,6 @@
 
       const STORE_KEY = "quala-state-v1";
+      const API_KEY_STORE_KEY = "quala-api-key-v1";
 
       const defaults = {
         docs: [],
@@ -69,6 +70,7 @@
         codebookRows: $("codebookRows"),
         codeModal: $("codeModal"),
         codePill: $("codePill"),
+        confirmExportBtn: $("confirmExportBtn"),
         confirmAddTextBtn: $("confirmAddTextBtn"),
         copyAnnotationsBtn: $("copyAnnotationsBtn"),
         copyCodebookBtn: $("copyCodebookBtn"),
@@ -83,7 +85,12 @@
         editCodeExample: $("editCodeExample"),
         editCodeId: $("editCodeId"),
         editCodeName: $("editCodeName"),
+        autosaveStatus: $("autosaveStatus"),
         exportBtn: $("exportBtn"),
+        exportExplanation: $("exportExplanation"),
+        exportFormat: $("exportFormat"),
+        exportModal: $("exportModal"),
+        exportScope: $("exportScope"),
         fileInput: $("fileInput"),
         histPill: $("histPill"),
         historyList: $("historyList"),
@@ -107,7 +114,6 @@
         refinePrompt: $("refinePrompt"),
         auditList: $("auditList"),
         auditSortBtn: $("auditSortBtn"),
-        saveBtn: $("saveBtn"),
         saveCodeBtn: $("saveCodeBtn"),
         snapshotBtn: $("snapshotBtn"),
         statCoded: $("statCoded"),
@@ -124,10 +130,35 @@
 
       function loadState() {
         try {
+          const localApiKey = localStorage.getItem(API_KEY_STORE_KEY) || "";
           const raw = localStorage.getItem(STORE_KEY);
-          if (!raw) return clone(defaults);
+          if (!raw) {
+            const empty = clone(defaults);
+            empty.preferences.apiKey = localApiKey;
+            return empty;
+          }
           const parsed = JSON.parse(raw);
+          if (parsed.tool === "Quala" && parsed.project) {
+            const project = parsed.project;
+            const preferences = { ...clone(defaults.preferences), ...(project.preferences || {}) };
+            preferences.apiKey = localApiKey;
+            migrateLegacyDefaultPrompts(preferences, project.preferences || {});
+            const loaded = {
+              ...clone(defaults),
+              preferences,
+              docs: normalizeLoadedDocs(project.docs || parsed.data || []),
+              selectedDocId: project.selectedDocId || null,
+              codebook: (parsed.codebook || []).map((code, index) => normalizeCode(code, index)),
+              annotations: normalizeLoadedAnnotations(parsed.data || []),
+              history: project.history || [],
+              auditLog: parsed.audit_log || [],
+              autosavedAt: parsed.exported_at || ""
+            };
+            if (!loaded.docs.some((doc) => doc.id === loaded.selectedDocId)) loaded.selectedDocId = loaded.docs[0]?.id || null;
+            return loaded;
+          }
           const preferences = { ...clone(defaults.preferences), ...(parsed.preferences || {}) };
+          preferences.apiKey = localApiKey || preferences.apiKey;
           migrateLegacyDefaultPrompts(preferences, parsed.preferences || {});
           const loaded = {
             ...clone(defaults),
@@ -189,13 +220,30 @@
         };
       }
 
-      function saveState(message = "Saved.") {
+      function saveState(message = "Auto-saved.") {
         persistState();
         setStatus(message);
       }
 
       function persistState() {
-        localStorage.setItem(STORE_KEY, JSON.stringify(state));
+        state.autosavedAt = new Date().toISOString();
+        localStorage.setItem(STORE_KEY, JSON.stringify(exportPayload(state.autosavedAt)));
+        localStorage.setItem(API_KEY_STORE_KEY, state.preferences.apiKey || "");
+        renderAutosaveStatus();
+      }
+
+      function renderAutosaveStatus() {
+        if (!els.autosaveStatus) return;
+        if (!state.autosavedAt) {
+          els.autosaveStatus.textContent = "Auto-save starting";
+          return;
+        }
+        const saved = new Date(state.autosavedAt);
+        els.autosaveStatus.textContent = `Auto-saved ${saved.toLocaleDateString()} ${saved.toLocaleTimeString([], {
+          hour: "numeric",
+          minute: "2-digit",
+          second: "2-digit"
+        })}`;
       }
 
       function setStatus(message) {
@@ -723,7 +771,8 @@
           codebook: (payload.codebook || project.codebook || []).map((code, index) => normalizeCode(code, index)),
           annotations: normalizeLoadedAnnotations(payload.data || project.annotations || payload.annotations || []),
           history: project.history || payload.history || [],
-          auditLog: payload.audit_log || project.auditLog || payload.auditLog || []
+          auditLog: payload.audit_log || project.auditLog || payload.auditLog || [],
+          autosavedAt: payload.exported_at || project.autosavedAt || ""
         };
         if (!loaded.docs.some((doc) => doc.id === loaded.selectedDocId)) {
           loaded.selectedDocId = loaded.docs[0]?.id || null;
@@ -1788,16 +1837,17 @@
         setStatus("Models loaded.");
       }
 
-      function exportPayload() {
+      function exportPayload(exportedAt = new Date().toISOString()) {
         const { apiKey, ...safePreferences } = state.preferences;
         return {
           tool: "Quala",
-          exported_at: new Date().toISOString(),
+          exported_at: exportedAt,
           project: {
             docs: state.docs,
             selectedDocId: state.selectedDocId,
             history: state.history,
-            preferences: safePreferences
+            preferences: safePreferences,
+            autosavedAt: state.autosavedAt || exportedAt
           },
           codebook: state.codebook.map(({ id, ...rest }) => rest),
           audit_log: state.auditLog,
@@ -1811,14 +1861,125 @@
         };
       }
 
-      function downloadJson(name, payload) {
-        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
+      function exportData(scope) {
+        const payload = exportPayload();
+        if (scope === "codebook") {
+          return { tool: "Quala", exported_at: payload.exported_at, export_type: "codebook", codebook: payload.codebook };
+        }
+        if (scope === "annotations") {
+          return { tool: "Quala", exported_at: payload.exported_at, export_type: "annotations", data: payload.data };
+        }
+        return payload;
+      }
+
+      function downloadFile(name, content, type) {
+        const blob = new Blob([content], { type });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
         a.download = name;
         a.click();
         URL.revokeObjectURL(url);
+      }
+
+      function exportRows(scope) {
+        const payload = exportPayload();
+        const codebook = payload.codebook.map((code) => ({
+          code_id: code.code_id,
+          name: code.name,
+          definition: code.definition,
+          status: code.status,
+          created_from_doc: code.created_from_doc,
+          example_quotes: (code.example_quotes || []).map((item) => `${item.doc_id}: ${item.quote}`).join("\n")
+        }));
+        const annotations = payload.data.flatMap((doc) =>
+          (doc.quotes || []).map((quote) => ({
+            datapoint_id: doc.id,
+            source: doc.source,
+            quote: quote.quote,
+            code_ids: (quote.code_ids || []).join(", "),
+            annotations: (quote.annotations || []).join(", "),
+            certainty: quote.certainty,
+            polarity: quote.polarity,
+            rationale: quote.rationale
+          }))
+        );
+        if (scope === "codebook") return [{ name: "Codebook", rows: codebook }];
+        if (scope === "annotations") return [{ name: "Annotations", rows: annotations }];
+        return [
+          {
+            name: "Datapoints",
+            rows: payload.project.docs.map((doc) => ({ id: doc.id, source: doc.source, status: doc.status, text: doc.text }))
+          },
+          { name: "Codebook", rows: codebook },
+          { name: "Annotations", rows: annotations },
+          { name: "Audit log", rows: payload.audit_log }
+        ];
+      }
+
+      function xmlEscape(value) {
+        return String(value ?? "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;");
+      }
+
+      function xmlSpreadsheetExport(scope) {
+        const sheets = exportRows(scope)
+          .map(({ name, rows }) => {
+            const columns = Array.from(new Set(rows.flatMap((row) => Object.keys(row))));
+            const header = columns.map((column) => `<Cell><Data ss:Type="String">${xmlEscape(column)}</Data></Cell>`).join("");
+            const body = rows
+              .map(
+                (row) =>
+                  `<Row>${columns
+                    .map((column) => `<Cell><Data ss:Type="String">${xmlEscape(formatCell(row[column]))}</Data></Cell>`)
+                    .join("")}</Row>`
+              )
+              .join("");
+            return `<Worksheet ss:Name="${xmlEscape(name)}"><Table><Row>${header}</Row>${body}</Table></Worksheet>`;
+          })
+          .join("");
+        return `<?xml version="1.0"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">${sheets}</Workbook>`;
+      }
+
+      function formatCell(value) {
+        if (value === null || value === undefined) return "";
+        return typeof value === "object" ? JSON.stringify(value) : String(value);
+      }
+
+      function textExport(scope) {
+        return exportRows(scope)
+          .map(({ name, rows }) => {
+            const records = rows.map((row) => Object.entries(row).map(([key, value]) => `${humanizeKey(key)}: ${formatCell(value)}`).join("\n"));
+            return `# ${name}\n\n${records.join("\n\n")}`;
+          })
+          .join("\n\n");
+      }
+
+      function exportExplanation(scope, format) {
+        if (scope === "all" && format === "json") {
+          return "Complete project backup. Load this JSON in Quala later or use it with compatible analysis tools.";
+        }
+        const content = scope === "all" ? "project data" : scope;
+        if (format === "json") return `Structured ${content} for software and analysis tools. Partial JSON exports cannot reload the full project.`;
+        if (format === "xml") return `XML spreadsheet for reviewing and analyzing ${content} in Excel or similar software.`;
+        return `Plain text version of ${content} for reading, notes, and simple text tools.`;
+      }
+
+      function renderExportExplanation() {
+        els.exportExplanation.textContent = exportExplanation(els.exportScope.value, els.exportFormat.value);
+      }
+
+      function runExport(scope, format) {
+        const base = `quala-${scope}`;
+        if (format === "json") {
+          downloadFile(`${base}.json`, JSON.stringify(exportData(scope), null, 2), "application/json;charset=utf-8");
+        } else if (format === "xml") {
+          downloadFile(`${base}.xml`, xmlSpreadsheetExport(scope), "application/vnd.ms-excel;charset=utf-8");
+        } else {
+          downloadFile(`${base}.txt`, textExport(scope), "text/plain;charset=utf-8");
+        }
       }
 
       function copyText(text) {
@@ -1944,13 +2105,16 @@
         }
       });
 
-      els.saveBtn.addEventListener("click", () => {
-        readPreferences();
-        saveState("Saved.");
-        render();
+      els.exportBtn.addEventListener("click", () => {
+        renderExportExplanation();
+        els.exportModal.classList.add("open");
       });
-
-      els.exportBtn.addEventListener("click", () => downloadJson("quala_annotations.json", exportPayload()));
+      els.exportScope.addEventListener("change", renderExportExplanation);
+      els.exportFormat.addEventListener("change", renderExportExplanation);
+      els.confirmExportBtn.addEventListener("click", () => {
+        runExport(els.exportScope.value, els.exportFormat.value);
+        els.exportModal.classList.remove("open");
+      });
       els.copyAnnotationsBtn.addEventListener("click", () => copyText(JSON.stringify(exportPayload().data, null, 2)));
       els.copyCodebookBtn.addEventListener("click", () => copyText(JSON.stringify(state.codebook, null, 2)));
 
@@ -2029,7 +2193,7 @@
       [els.apiKey, els.modelSelect, els.temperature, els.verbosity, els.reasoning, els.maxQuotes, els.lens, els.codebookPrompt, els.refinePrompt, els.mergePrompt, els.annotationPrompt].forEach(
         (el) => el.addEventListener("change", () => {
           readPreferences();
-          saveState("Preferences saved.");
+          saveState("Preferences auto-saved.");
         })
       );
 

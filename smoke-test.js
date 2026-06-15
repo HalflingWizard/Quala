@@ -54,11 +54,14 @@ const document = {
   }
 };
 
+const storedValues = {};
 const localStorage = {
-  getItem() {
-    return null;
+  getItem(key) {
+    return storedValues[key] || null;
   },
-  setItem() {}
+  setItem(key, value) {
+    storedValues[key] = value;
+  }
 };
 
 const context = {
@@ -105,6 +108,18 @@ if (!elements.newProjectBtn || !elements.loadProjectBtn || !elements.projectInpu
   throw new Error("Project controls are not available.");
 }
 
+if (
+  elements.saveBtn ||
+  !elements.exportBtn ||
+  !elements.autosaveStatus ||
+  !elements.exportModal ||
+  !elements.exportScope ||
+  !elements.exportFormat ||
+  !elements.confirmExportBtn
+) {
+  throw new Error("Auto-save status or export menu controls are missing.");
+}
+
 if (!elements.mergePrompt) {
   throw new Error("Merge reviewer prompt is not available.");
 }
@@ -123,6 +138,21 @@ if (!elements.processQueueBtn || html.includes("processCurrentBtn") || html.incl
 
 if (typeof context.readDocx !== "function") {
   throw new Error("DOCX reader did not load.");
+}
+
+const autosavePayload = JSON.parse(storedValues["quala-state-v1"]);
+if (
+  autosavePayload.tool !== "Quala" ||
+  !autosavePayload.project ||
+  !Array.isArray(autosavePayload.codebook) ||
+  !Array.isArray(autosavePayload.data) ||
+  !autosavePayload.exported_at
+) {
+  throw new Error("Browser auto-save is not using the full project JSON format.");
+}
+const reloadedAutosave = context.loadState();
+if (!Array.isArray(reloadedAutosave.docs) || !Array.isArray(reloadedAutosave.codebook)) {
+  throw new Error("Browser auto-save could not be loaded as a project.");
 }
 
 const zipName = Buffer.from("word/document.xml");
@@ -311,6 +341,29 @@ if (
   !Array.isArray(exportPayload.project.docs)
 ) {
   throw new Error("Export payload is missing workflow arrays.");
+}
+const allJsonExport = context.exportData("all");
+const codebookJsonExport = context.exportData("codebook");
+const annotationsJsonExport = context.exportData("annotations");
+if (
+  !allJsonExport.project ||
+  codebookJsonExport.export_type !== "codebook" ||
+  !Array.isArray(codebookJsonExport.codebook) ||
+  annotationsJsonExport.export_type !== "annotations" ||
+  !Array.isArray(annotationsJsonExport.data)
+) {
+  throw new Error("JSON export scopes are wrong.");
+}
+const xmlText = context.xmlSpreadsheetExport("all");
+if (!xmlText.includes("<Workbook") || !xmlText.includes('ss:Name="Codebook"') || !xmlText.includes('ss:Name="Annotations"')) {
+  throw new Error("XML spreadsheet export is missing workbook sheets.");
+}
+const plainText = context.textExport("codebook");
+if (!plainText.includes("# Codebook")) {
+  throw new Error("TXT export is missing the codebook section.");
+}
+if (!context.exportExplanation("all", "json").includes("Load this JSON in Quala later")) {
+  throw new Error("The reloadable all-data JSON explanation is missing.");
 }
 
 const updatePacket = context.applyCodebookUpdates(

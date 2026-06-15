@@ -535,6 +535,19 @@
         margin-bottom: 12px;
       }
 
+      .autosaveStatus {
+        max-width: 220px;
+        text-align: right;
+      }
+
+      .exportNotice {
+        border: 1px solid #bfdbfe;
+        border-radius: 10px;
+        padding: 10px;
+        background: #eff6ff;
+        color: #1e3a8a;
+      }
+
       .fileInput {
         display: none;
       }
@@ -568,8 +581,8 @@
         </div>
       </div>
       <div class="row">
-        <button id="saveBtn">Save</button>
-        <button id="exportBtn" class="primary">Export JSON</button>
+        <div id="autosaveStatus" class="muted tiny autosaveStatus">Auto-save starting</div>
+        <button id="exportBtn" class="primary">Export</button>
       </div>
     </header>
 
@@ -848,6 +861,45 @@
             <button id="saveCodeBtn" class="primary">Save code</button>
             <button id="deleteCodeBtn" class="danger">Delete code</button>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="exportModal" class="modalBackdrop">
+      <div class="modal" style="width: min(680px, 100%)">
+        <div class="modalHead">
+          <h2>Export</h2>
+          <button data-close-modal>Close</button>
+        </div>
+        <div class="stack">
+          <div class="exportNotice">
+            All data as JSON is the complete project file. Use it to load the project in Quala later or with compatible analysis tools.
+          </div>
+          <div class="stack small">
+            <div><strong>JSON</strong> for project backup, loading later, and analysis tools.</div>
+            <div><strong>XML</strong> for spreadsheet review in Excel or similar software.</div>
+            <div><strong>TXT</strong> for easy reading, notes, and simple text tools.</div>
+          </div>
+          <div class="grid2">
+            <div>
+              <label for="exportScope">What to export</label>
+              <select id="exportScope">
+                <option value="all">All data</option>
+                <option value="codebook">Codebook</option>
+                <option value="annotations">Annotations</option>
+              </select>
+            </div>
+            <div>
+              <label for="exportFormat">File format</label>
+              <select id="exportFormat">
+                <option value="json">JSON</option>
+                <option value="xml">XML</option>
+                <option value="txt">TXT</option>
+              </select>
+            </div>
+          </div>
+          <div id="exportExplanation" class="muted small"></div>
+          <button id="confirmExportBtn" class="primary">Download export</button>
         </div>
       </div>
     </div>
