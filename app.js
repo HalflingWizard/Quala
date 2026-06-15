@@ -1869,6 +1869,9 @@
         if (scope === "annotations") {
           return { tool: "Quala", exported_at: payload.exported_at, export_type: "annotations", data: payload.data };
         }
+        if (scope === "logs") {
+          return { tool: "Quala", exported_at: payload.exported_at, export_type: "audit_logs", audit_log: payload.audit_log };
+        }
         return payload;
       }
 
@@ -1906,6 +1909,7 @@
         );
         if (scope === "codebook") return [{ name: "Codebook", rows: codebook }];
         if (scope === "annotations") return [{ name: "Annotations", rows: annotations }];
+        if (scope === "logs") return [{ name: "Audit log", rows: payload.audit_log }];
         return [
           {
             name: "Datapoints",
@@ -1960,6 +1964,11 @@
       function exportExplanation(scope, format) {
         if (scope === "all" && format === "json") {
           return "Complete project backup. Load this JSON in Quala later or use it with compatible analysis tools.";
+        }
+        if (scope === "logs") {
+          if (format === "json") return "Complete structured audit logs with agent attribution, prompts, inputs, outputs, statistics, and errors for troubleshooting.";
+          if (format === "xml") return "Audit logs in spreadsheet XML. Nested prompts, inputs, and outputs are kept as JSON text for troubleshooting.";
+          return "Readable audit logs with agent attribution, prompts, inputs, outputs, statistics, and errors for troubleshooting.";
         }
         const content = scope === "all" ? "project data" : scope;
         if (format === "json") return `Structured ${content} for software and analysis tools. Partial JSON exports cannot reload the full project.`;

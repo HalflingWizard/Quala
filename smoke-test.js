@@ -345,12 +345,15 @@ if (
 const allJsonExport = context.exportData("all");
 const codebookJsonExport = context.exportData("codebook");
 const annotationsJsonExport = context.exportData("annotations");
+const logsJsonExport = context.exportData("logs");
 if (
   !allJsonExport.project ||
   codebookJsonExport.export_type !== "codebook" ||
   !Array.isArray(codebookJsonExport.codebook) ||
   annotationsJsonExport.export_type !== "annotations" ||
-  !Array.isArray(annotationsJsonExport.data)
+  !Array.isArray(annotationsJsonExport.data) ||
+  logsJsonExport.export_type !== "audit_logs" ||
+  !Array.isArray(logsJsonExport.audit_log)
 ) {
   throw new Error("JSON export scopes are wrong.");
 }
@@ -362,8 +365,19 @@ const plainText = context.textExport("codebook");
 if (!plainText.includes("# Codebook")) {
   throw new Error("TXT export is missing the codebook section.");
 }
+const logText = context.textExport("logs");
+if (!logText.includes("# Audit log")) {
+  throw new Error("TXT export is missing the audit log section.");
+}
+const logXml = context.xmlSpreadsheetExport("logs");
+if (!logXml.includes('ss:Name="Audit log"')) {
+  throw new Error("XML export is missing the audit log sheet.");
+}
 if (!context.exportExplanation("all", "json").includes("Load this JSON in Quala later")) {
   throw new Error("The reloadable all-data JSON explanation is missing.");
+}
+if (!context.exportExplanation("logs", "json").includes("prompts")) {
+  throw new Error("The troubleshooting log export explanation is missing.");
 }
 
 const updatePacket = context.applyCodebookUpdates(

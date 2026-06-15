@@ -23,7 +23,7 @@ It helps a researcher build a codebook over a queue of datapoints, annotate exac
 - Save snapshots before and after processing so a researcher can undo mistakes.
 - Save an audit log for each document with actor badges, filter, time sort, stage summaries, and expandable full prompts and outputs.
 - Auto-save a reloadable full-project JSON structure in browser storage and show the latest auto-save time.
-- Export all data, the codebook, or annotations as JSON, XML, or TXT.
+- Export all data, the codebook, annotations, or troubleshooting logs as JSON, XML, or TXT.
 - Keep full-project JSON compatible with project loading and `arazilab/analysis_tools`.
 
 ## Run
@@ -55,7 +55,7 @@ node smoke-test.js
 9. Review the codebook and edit or delete codes when needed.
 10. Review annotations and the audit log. Filter the audit by document when you need one document's processing history.
 11. Edit or restore from History when needed.
-12. Export all data, the codebook, or annotations in the format you need.
+12. Export all data, the codebook, annotations, or audit logs in the format you need.
 
 ## Export Shape
 
