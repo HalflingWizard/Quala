@@ -415,7 +415,7 @@
             </td>
             <td>
               <span class="pill" title="${escapeHtml(tagTooltip("coverage", `${coverage.count}/${coverage.total}`))}">${coverage.percent}%</span>
-              <div class="muted tiny" style="margin-top: 4px">${coverage.count}/${coverage.total} datapoints</div>
+              <span class="pill" title="${escapeHtml(tagTooltip("related_datapoints", coverage.docIds))}">${coverage.count}/${coverage.total}</span>
             </td>
             <td><button data-edit-code="${escapeHtml(code.id)}">Edit</button></td>
           `;
@@ -554,6 +554,9 @@
         if (type === "code_status") return codeStatuses[value] || "Current codebook status.";
         if (type === "document_status") return documentStatuses[value] || "Current datapoint processing status.";
         if (type === "coverage") return `${value} loaded datapoints contain verified evidence for this code.`;
+        if (type === "related_datapoints") {
+          return value.length ? `Related datapoints: ${value.join(", ")}` : "No loaded datapoints contain verified evidence for this code.";
+        }
         if (type === "certainty") return "Quala currently uses certainty 5 for exact verified code applications.";
         if (type === "code") return "Code assigned to this exact quote.";
         if (type === "datapoint") return value === "system" ? "This event applies to the project rather than one datapoint." : `This event belongs to datapoint ${value}.`;
@@ -703,7 +706,8 @@
         return {
           count: docIds.size,
           total,
-          percent: Math.round((docIds.size / total) * 100)
+          percent: Math.round((docIds.size / total) * 100),
+          docIds: Array.from(docIds).sort((a, b) => a.localeCompare(b))
         };
       }
 
@@ -1874,7 +1878,15 @@
             preferences: safePreferences,
             autosavedAt: state.autosavedAt || exportedAt
           },
-          codebook: state.codebook.map(({ id, ...rest }) => rest),
+          codebook: state.codebook.map(({ id, ...code }) => {
+            const coverage = coverageForCode(code);
+            return {
+              ...code,
+              coverage_percent: coverage.percent,
+              coverage_ratio: `${coverage.count}/${coverage.total}`,
+              related_datapoints: coverage.docIds
+            };
+          }),
           audit_log: state.auditLog,
           data: state.annotations.map((doc) => ({
             id: doc.id,
@@ -1896,7 +1908,20 @@
       function exportData(scope) {
         const payload = exportPayload();
         if (scope === "codebook") {
-          return { tool: "Quala", exported_at: payload.exported_at, export_type: "codebook", codebook: payload.codebook };
+          return {
+            tool: "Quala",
+            exported_at: payload.exported_at,
+            export_type: "codebook",
+            codebook: payload.codebook.map((code) => {
+              const coverage = coverageForCode(code, payload.project.docs, payload.data);
+              return {
+                ...code,
+                coverage_percent: coverage.percent,
+                coverage_ratio: `${coverage.count}/${coverage.total}`,
+                related_datapoints: coverage.docIds
+              };
+            })
+          };
         }
         if (scope === "annotations") {
           return { tool: "Quala", exported_at: payload.exported_at, export_type: "annotations", data: payload.data };
@@ -1919,14 +1944,7 @@
 
       function exportRows(scope) {
         const payload = exportPayload();
-        const codebook = payload.codebook.map((code) => ({
-          code_id: code.code_id,
-          name: code.name,
-          definition: code.definition,
-          status: code.status,
-          created_from_doc: code.created_from_doc,
-          example_quotes: (code.example_quotes || []).map((item) => `${item.doc_id}: ${item.quote}`).join("\n")
-        }));
+        const codebook = codebookExportRows(payload);
         const annotations = payload.data.flatMap((doc) =>
           (doc.quotes || []).map((quote) => ({
             datapoint_id: doc.id,
@@ -1950,6 +1968,23 @@
           { name: "Annotations", rows: annotations },
           { name: "Audit log", rows: payload.audit_log }
         ];
+      }
+
+      function codebookExportRows(payload = exportPayload()) {
+        return payload.codebook.map((code) => {
+          const coverage = coverageForCode(code, payload.project.docs, payload.data);
+          return {
+            code_id: code.code_id,
+            name: code.name,
+            definition: code.definition,
+            status: code.status,
+            created_from_doc: code.created_from_doc,
+            coverage_percent: coverage.percent,
+            coverage_ratio: `${coverage.count}/${coverage.total}`,
+            related_datapoints: coverage.docIds.join(", "),
+            example_quotes: (code.example_quotes || []).map((item) => `${item.doc_id}: ${item.quote}`).join("\n")
+          };
+        });
       }
 
       function xmlEscape(value) {

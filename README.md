@@ -16,7 +16,7 @@ It helps a researcher build a codebook over a queue of datapoints, annotate exac
 - Run a codebook applier after codebook updates so new codes can apply to the same document.
 - Check every model quote with a non LLM verifier using exact substring matching before saving annotations.
 - Mark codes as active, dormant, merged, or rejected. Deleted codes are marked rejected.
-- Sort the codebook by coverage and show both percentage and datapoint ratio.
+- Sort the codebook by coverage and show percentage plus an `x/n` ratio tag that lists related datapoints on hover.
 - Choose the richest verified example quote for each code and show its datapoint ID.
 - Ask agents for context-rich quotes and include the interviewer question when a response depends on it.
 - Annotate exact verbatim quotes with code names while preserving stable code IDs.
@@ -24,6 +24,7 @@ It helps a researcher build a codebook over a queue of datapoints, annotate exac
 - Save an audit log for each document with actor badges, filter, time sort, stage summaries, and expandable full prompts and outputs.
 - Auto-save a reloadable full-project JSON structure in browser storage and show the latest auto-save time.
 - Export all data, the codebook, annotations, or troubleshooting logs as JSON, XML, or TXT.
+- Include related datapoint IDs and coverage values in codebook exports.
 - Keep full-project JSON compatible with project loading and `arazilab/analysis_tools`.
 - Explain the agent workflow in an in-app guide with a visual process graph.
 - Show hover explanations for code status, document status, coverage, certainty, count, and audit tags.

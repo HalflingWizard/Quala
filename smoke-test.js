@@ -449,8 +449,16 @@ const coverageDetails = context.coverageForCode(
     }
   ]
 );
-if (coverageDetails.count !== 2 || coverageDetails.total !== 3 || coverageDetails.percent !== 67) {
+if (
+  coverageDetails.count !== 2 ||
+  coverageDetails.total !== 3 ||
+  coverageDetails.percent !== 67 ||
+  coverageDetails.docIds.join(",") !== "D1,D2"
+) {
   throw new Error("Coverage details did not include the datapoint ratio.");
+}
+if (!context.tagTooltip("related_datapoints", coverageDetails.docIds).includes("D1, D2")) {
+  throw new Error("The coverage ratio tooltip does not list related datapoints.");
 }
 const bestQuote = context.bestQuoteForCode(
   {
@@ -476,6 +484,32 @@ const sortedCodeRows = context.sortCodebookRows([
 ]);
 if (sortedCodeRows.map((row) => row.code.name).join(",") !== "Alpha,Zulu,Low") {
   throw new Error("Codebook rows were not sorted by prevalence.");
+}
+const exportedCodeRows = context.codebookExportRows({
+  project: { docs: [{ id: "D1" }, { id: "D2" }, { id: "D3" }] },
+  codebook: [
+    {
+      code_id: "C100",
+      name: "Prevalent code",
+      definition: "Test",
+      status: "active",
+      created_from_doc: "D1",
+      example_quotes: [{ doc_id: "D1", quote: "short", verified: true }]
+    }
+  ],
+  data: [
+    {
+      id: "D2",
+      quotes: [{ quote: "A richer quote.", code_ids: ["C100"], annotations: [] }]
+    }
+  ]
+});
+if (exportedCodeRows[0].related_datapoints !== "D1, D2" || exportedCodeRows[0].coverage_ratio !== "2/3") {
+  throw new Error("Codebook export is missing related datapoints or coverage ratio.");
+}
+const fullExportCode = context.exportPayload().codebook.find((code) => code.code_id === existingCode.code_id);
+if (!Array.isArray(fullExportCode.related_datapoints) || !fullExportCode.coverage_ratio) {
+  throw new Error("Full project JSON is missing code coverage datapoints.");
 }
 
 context.addAuditLog({
