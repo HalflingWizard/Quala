@@ -201,6 +201,48 @@ if (
   throw new Error("Verified scout finding did not become a fallback novelty item.");
 }
 
+const falseCoveredDecisions = Array.from({ length: 6 }, (_, index) => ({
+  scout_code_name: `False covered idea ${index + 1}`,
+  decision: "already_covered",
+  matched_code_id: `False covered idea ${index + 1}`,
+  suggested_code: {
+    name: `False covered idea ${index + 1}`,
+    definition: "A code that does not exist yet."
+  },
+  evidence_quotes: ["beta"],
+  rationale: "The model incorrectly claimed this was already covered."
+}));
+const falseCoveredPacket = context.applyCodebookUpdates(
+  { id: "D1" },
+  {
+    doc_id: "D1",
+    novelty_decisions: falseCoveredDecisions
+  },
+  { merge_review: [] },
+  verification
+);
+if (falseCoveredPacket.active_codes_added.length !== 6) {
+  throw new Error("False already_covered decisions did not create six active codes.");
+}
+const existingCode = falseCoveredPacket.active_codes_added[0];
+const coveredPacket = context.applyCodebookUpdates(
+  { id: "D2" },
+  {
+    doc_id: "D2",
+    novelty_decisions: [
+      {
+        ...falseCoveredDecisions[0],
+        matched_code_id: existingCode.code_id
+      }
+    ]
+  },
+  { merge_review: [] },
+  verification
+);
+if (coveredPacket.active_codes_added.length !== 0) {
+  throw new Error("A valid already_covered decision created a duplicate code.");
+}
+
 const exportPayload = context.exportPayload();
 if (
   !Array.isArray(exportPayload.data) ||

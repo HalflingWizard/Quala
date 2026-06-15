@@ -1010,7 +1010,7 @@
           {
             role: "system",
             content:
-              "You are Agent 3, Novelty detector. Return only JSON that matches the schema. Compare scout findings with the current codebook. Do not create active codes. Evidence quotes must come from the verified scout quotes without changes."
+              "You are Agent 3, Novelty detector. Return only JSON that matches the schema. Compare scout findings with the current codebook. Use already_covered only when matched_code_id is an exact code_id from current_codebook. If current_codebook is empty, every verified scout finding must be new_code. Do not create active codes. Evidence quotes must come from the verified scout quotes without changes."
           },
           {
             role: "user",
@@ -1533,7 +1533,7 @@
         const activeCodesAdded = [];
         const mergedCodes = [];
         for (const item of noveltyOutput.novelty_decisions || []) {
-          if (item.decision === "already_covered") continue;
+          if (item.decision === "already_covered" && findCoveredCode(item)) continue;
           if (!item.evidence_quotes?.length) continue;
           const merge =
             mergeByName.get(String(item.suggested_code?.name || "").toLowerCase()) ||
@@ -1556,6 +1556,19 @@
           active_codes_added: activeCodesAdded,
           merged_codes: mergedCodes
         };
+      }
+
+      function findCoveredCode(noveltyItem) {
+        const matchedCodeId = String(noveltyItem.matched_code_id || "").trim().toLowerCase();
+        const suggestedName = String(noveltyItem.suggested_code?.name || noveltyItem.scout_code_name || "")
+          .trim()
+          .toLowerCase();
+        return state.codebook.find((code) => {
+          if (code.status === "rejected" || code.status === "merged") return false;
+          const codeId = String(code.code_id || "").trim().toLowerCase();
+          const codeName = String(code.name || "").trim().toLowerCase();
+          return (matchedCodeId && (codeId === matchedCodeId || codeName === matchedCodeId)) || (suggestedName && codeName === suggestedName);
+        });
       }
 
       function applyMergeUpdate(doc, noveltyItem, merge, verification) {
