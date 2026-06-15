@@ -18,6 +18,7 @@ It helps a researcher build a codebook over a queue of datapoints, annotate exac
 - Mark codes as active, dormant, merged, or rejected. Deleted codes are marked rejected.
 - Sort the codebook by coverage and show both percentage and datapoint ratio.
 - Choose the richest verified example quote for each code and show its datapoint ID.
+- Ask agents for context-rich quotes and include the interviewer question when a response depends on it.
 - Annotate exact verbatim quotes with code names while preserving stable code IDs.
 - Save snapshots before and after processing so a researcher can undo mistakes.
 - Save an audit log for each document, with filter, time sort, stage summaries, and expandable full prompts and outputs.

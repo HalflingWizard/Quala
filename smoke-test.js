@@ -244,7 +244,17 @@ if (coveredPacket.active_codes_added.length !== 0) {
 }
 
 const firstDoc = { id: "D1", source: "test.txt", text: "alpha beta gamma" };
-const firstDocApplierInput = JSON.parse(context.buildApplierPrompt(firstDoc)[1].content);
+const scoutPrompt = context.buildScoutPrompt(firstDoc);
+const applierPrompt = context.buildApplierPrompt(firstDoc);
+const firstDocApplierInput = JSON.parse(applierPrompt[1].content);
+const quoteQualityText = `${scoutPrompt[0].content} ${applierPrompt[0].content} ${firstDocApplierInput.required_behavior.join(" ")}`;
+if (
+  !quoteQualityText.includes("interviewer question") ||
+  !quoteQualityText.includes("rich") ||
+  !quoteQualityText.includes("contiguous")
+) {
+  throw new Error("Agent prompts are missing the contextual quote quality rules.");
+}
 if (!firstDocApplierInput.codebook.some((code) => code.code_id === existingCode.code_id)) {
   throw new Error("A code created from the first document was missing from its applier prompt.");
 }

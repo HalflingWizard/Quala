@@ -19,13 +19,13 @@
           lens:
             "This is a general qualitative study. Identify recurring themes, important differences between participants or documents, unexpected concerns, helpful or harmful experiences, needs, barriers, motivations, decisions, and concrete examples that answer the research question.",
           codebookPrompt:
-            "Find possible new concepts in this document without using the current codebook. Focus on ideas that help answer the study question. Every supporting quote must be copied exactly from the document as one contiguous substring. Do not change spelling, punctuation, capitalization, spacing, or wording. Do not paraphrase. Do not add ellipses. Before returning a quote, check that document_text.includes(quote) would be true.",
+            "Find possible new concepts in this document without using the current codebook. Focus on ideas that help answer the study question. Choose rich supporting quotes that can be understood on their own. Include the interviewer question when the response has little meaning without it. Include enough surrounding turns to preserve the participant's meaning, reasoning, and relevant details. Prefer a complete thought over a short fragment. Every supporting quote must be copied exactly from the document as one contiguous substring. Do not change spelling, punctuation, capitalization, spacing, or wording. Do not paraphrase. Do not add ellipses. Before returning a quote, check that document_text.includes(quote) would be true.",
           refinePrompt:
             "Compare scout findings with the current codebook. Mark each finding as new_code, already_covered, or possible_merge. Use only evidence quotes that were already copied exactly from the document.",
           mergePrompt:
             "Review whether candidate codes should stay separate or merge with existing codes. Argue both sides. Recommend merging only when the meaning, use case, and evidence type are the same and the merged definition would be clearer.",
           annotationPrompt:
-            "Apply only the existing active codebook. Do not create codes. Return exact verbatim quotes only. Each quote must be copied exactly from the document as one contiguous substring. Do not change spelling, punctuation, capitalization, spacing, or wording. Do not paraphrase. Do not add ellipses. Before returning a quote, check that document_text.includes(quote) would be true. If a code does not appear, list it as having no instance."
+            "Apply only the existing active codebook. Do not create codes. Choose rich quotes that can be understood on their own. Include the interviewer question when the response has little meaning without it. Include enough surrounding turns to preserve the participant's meaning, reasoning, and relevant details. Prefer a complete thought over a short fragment. Return exact verbatim quotes only. Each quote must be copied exactly from the document as one contiguous substring. Do not change spelling, punctuation, capitalization, spacing, or wording. Do not paraphrase. Do not add ellipses. Before returning a quote, check that document_text.includes(quote) would be true. If a code does not appear, list it as having no instance."
         }
       };
 
@@ -44,7 +44,8 @@
           "Compare scout findings with the current codebook. Mark each finding as new_code, already_covered, possible_merge, or needs_human_review. Do not create active codes directly. Use only evidence quotes that were already copied exactly from the document."
         ],
         annotationPrompt: [
-          "Apply only the existing active codebook. Do not create codes. Return exact verbatim quotes only. If a code does not appear, list it as having no instance."
+          "Apply only the existing active codebook. Do not create codes. Return exact verbatim quotes only. If a code does not appear, list it as having no instance.",
+          "Apply only the existing active codebook. Do not create codes. Return exact verbatim quotes only. Each quote must be copied exactly from the document as one contiguous substring. Do not change spelling, punctuation, capitalization, spacing, or wording. Do not paraphrase. Do not add ellipses. Before returning a quote, check that document_text.includes(quote) would be true. If a code does not appear, list it as having no instance."
         ]
       };
 
@@ -1009,7 +1010,7 @@
           {
             role: "system",
             content:
-              "You are Agent 1, Document scout. Return only JSON that matches the schema. You must not use or ask for the current codebook. Every supporting quote must be copied exactly from document_text as one contiguous substring. Do not alter spelling, punctuation, capitalization, spacing, or wording."
+              "You are Agent 1, Document scout. Return only JSON that matches the schema. You must not use or ask for the current codebook. Choose rich supporting quotes that can be understood without guessing the missing context. Include the interviewer question in the same quote when the response depends on that question for meaning. Include enough surrounding turns to preserve the participant's meaning, reasoning, and relevant details. Prefer complete thought units over short fragments, but do not include unrelated transcript. Every supporting quote must be copied exactly from document_text as one contiguous substring. Do not alter spelling, punctuation, capitalization, spacing, or wording."
           },
           {
             role: "user",
@@ -1032,7 +1033,7 @@
           {
             role: "system",
             content:
-              "You are Agent 2, Codebook applier. Return only JSON that matches the schema. You cannot create codes. Every quote must be copied exactly from document_text as one contiguous substring. Do not alter spelling, punctuation, capitalization, spacing, or wording. If a code has no quote, put its code_id in codes_with_no_instance."
+              "You are Agent 2, Codebook applier. Return only JSON that matches the schema. You cannot create codes. Choose rich quotes that can be understood without guessing the missing context. Include the interviewer question in the same quote when the response depends on that question for meaning. Include enough surrounding turns to preserve the participant's meaning, reasoning, and relevant details. Prefer complete thought units over short fragments, but do not include unrelated transcript. Every quote must be copied exactly from document_text as one contiguous substring. Do not alter spelling, punctuation, capitalization, spacing, or wording. If a code has no quote, put its code_id in codes_with_no_instance."
           },
           {
             role: "user",
@@ -1048,6 +1049,10 @@
                   "Return exact verbatim quotes only.",
                   "Each quote must pass document_text.includes(quote).",
                   "Do not paraphrase, clean up, shorten by rewriting, merge separate passages, or add ellipses.",
+                  "Choose a rich passage that preserves the participant's meaning, reasoning, and relevant details.",
+                  "Include the interviewer question when the response would have little meaning without it.",
+                  "Keep the question, response, and useful surrounding context in one contiguous quote.",
+                  "Prefer complete thought units over short fragments, but exclude unrelated transcript.",
                   "Include positive and negative cases when they match the code definition."
                 ]
               },
