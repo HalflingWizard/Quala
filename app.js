@@ -396,6 +396,7 @@
         entries.forEach((entry) => {
             const div = document.createElement("div");
             div.className = "item";
+            const actor = auditActor(entry);
             const stats = entry.stats || legacyAuditStats(entry);
             const statsHtml = Object.entries(stats)
               .map(([key, value]) => `<span class="pill">${escapeHtml(humanizeKey(key))} ${escapeHtml(value)}</span>`)
@@ -403,13 +404,17 @@
             const detailPayload = {
               summary: entry.summary || entry.reason || "",
               stats,
+              actor,
               input: entry.input || null,
               output: entry.output || null,
               details: entry.details || null
             };
             div.innerHTML = `
               <div class="itemTitle">
-                <span>${escapeHtml(entry.title || humanizeKey(entry.event_type))}</span>
+                <span>
+                  ${escapeHtml(entry.title || humanizeKey(entry.event_type))}
+                  <span class="auditActor ${escapeHtml(actor.type)}">${escapeHtml(actor.icon)} ${escapeHtml(actor.label)}</span>
+                </span>
                 <span class="pill">${escapeHtml(entry.doc_id || "system")}</span>
               </div>
               <div class="muted tiny">${escapeHtml(entry.timestamp)}</div>
@@ -422,6 +427,22 @@
             `;
             els.auditList.appendChild(div);
           });
+      }
+
+      function auditActor(entry) {
+        if (entry.actor?.label) return entry.actor;
+        const actors = {
+          document_scout: { id: "agent_1", label: "Agent 1 Scout", type: "agent", icon: "A1" },
+          codebook_applier: { id: "agent_2", label: "Agent 2 Applier", type: "agent", icon: "A2" },
+          novelty_detector: { id: "agent_3", label: "Agent 3 Novelty", type: "agent", icon: "A3" },
+          merge_reviewer: { id: "agent_4", label: "Agent 4 Merge", type: "agent", icon: "A4" },
+          evidence_auditor: { id: "exact_match_auditor", label: "Exact-match Auditor", type: "auditor", icon: "✓" },
+          quotes_verified: { id: "exact_match_auditor", label: "Exact-match Auditor", type: "auditor", icon: "✓" },
+          quote_verification_failed: { id: "exact_match_auditor", label: "Exact-match Auditor", type: "auditor", icon: "✓" },
+          code_manual_edit: { id: "human", label: "Human", type: "human", icon: "H" },
+          code_rejected: { id: "human", label: "Human", type: "human", icon: "H" }
+        };
+        return actors[entry.event_type] || { id: "quala_system", label: "Quala System", type: "system", icon: "Q" };
       }
 
       function renderAuditControls() {
@@ -1727,6 +1748,7 @@
       }
 
       function addAuditLog(entry) {
+        const actor = auditActor(entry);
         state.auditLog.push({
           timestamp: new Date().toISOString(),
           doc_id: entry.doc_id || "",
@@ -1739,7 +1761,8 @@
           details: entry.details || null,
           code_id: entry.code_id || "",
           reason: entry.reason || "",
-          approved_by: entry.approved_by || ""
+          approved_by: entry.approved_by || "",
+          actor
         });
       }
 

@@ -421,6 +421,37 @@
         margin-top: 8px;
       }
 
+      .auditActor {
+        display: inline-block;
+        margin-left: 6px;
+        border: 1px solid #bfdbfe;
+        border-radius: 999px;
+        padding: 2px 7px;
+        background: #eff6ff;
+        color: #1d4ed8;
+        font-size: 11px;
+        font-weight: 700;
+        vertical-align: middle;
+      }
+
+      .auditActor.auditor {
+        border-color: #a7f3d0;
+        background: #ecfdf5;
+        color: #047857;
+      }
+
+      .auditActor.system {
+        border-color: #cbd5e1;
+        background: #f8fafc;
+        color: #475569;
+      }
+
+      .auditActor.human {
+        border-color: #fde68a;
+        background: #fffbeb;
+        color: #92400e;
+      }
+
       .auditDetails summary {
         cursor: pointer;
         color: var(--accent);
@@ -670,7 +701,7 @@
         <section id="auditView" class="view panel hidden">
           <div>
             <h2>Audit log</h2>
-            <p class="muted small">Quote checks, review requests, and codebook changes are recorded here.</p>
+            <p class="muted small">Each entry shows which agent, auditor, system step, or human made the call.</p>
           </div>
           <div class="auditControls">
             <div>

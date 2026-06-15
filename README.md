@@ -21,7 +21,7 @@ It helps a researcher build a codebook over a queue of datapoints, annotate exac
 - Ask agents for context-rich quotes and include the interviewer question when a response depends on it.
 - Annotate exact verbatim quotes with code names while preserving stable code IDs.
 - Save snapshots before and after processing so a researcher can undo mistakes.
-- Save an audit log for each document, with filter, time sort, stage summaries, and expandable full prompts and outputs.
+- Save an audit log for each document with actor badges, filter, time sort, stage summaries, and expandable full prompts and outputs.
 - Export JSON with a top level `data` array and an `annotation` field for compatibility with `arazilab/analysis_tools`.
 
 ## Run

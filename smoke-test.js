@@ -386,8 +386,36 @@ context.addAuditLog({
   output: { scout_codes: [] }
 });
 const auditPayload = context.exportPayload().audit_log.find((entry) => entry.title === "Document scout");
-if (!auditPayload || auditPayload.stats.concepts_found !== 1 || !auditPayload.input || !auditPayload.output) {
+if (
+  !auditPayload ||
+  auditPayload.stats.concepts_found !== 1 ||
+  !auditPayload.input ||
+  !auditPayload.output ||
+  auditPayload.actor?.label !== "Agent 1 Scout"
+) {
   throw new Error("Structured audit event was not saved.");
+}
+const actorChecks = {
+  document_scout: "Agent 1 Scout",
+  codebook_applier: "Agent 2 Applier",
+  novelty_detector: "Agent 3 Novelty",
+  merge_reviewer: "Agent 4 Merge",
+  evidence_auditor: "Exact-match Auditor",
+  codebook_update: "Quala System",
+  code_manual_edit: "Human"
+};
+for (const [event_type, label] of Object.entries(actorChecks)) {
+  if (context.auditActor({ event_type }).label !== label) {
+    throw new Error(`Audit actor mapping is wrong for ${event_type}.`);
+  }
+}
+if (!html.includes("auditActor")) {
+  throw new Error("Audit actor badge styling is missing.");
+}
+context.renderAudit();
+const scoutAuditCard = (elements.auditList.children || []).find((card) => card.innerHTML.includes("Agent 1 Scout"));
+if (!scoutAuditCard || !scoutAuditCard.innerHTML.includes("auditActor agent")) {
+  throw new Error("The audit log did not render the agent badge.");
 }
 
 const loadedProject = context.projectStateFromPayload({
