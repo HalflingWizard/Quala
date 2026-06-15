@@ -25,6 +25,8 @@ It helps a researcher build a codebook over a queue of datapoints, annotate exac
 - Auto-save a reloadable full-project JSON structure in browser storage and show the latest auto-save time.
 - Export all data, the codebook, annotations, or troubleshooting logs as JSON, XML, or TXT.
 - Keep full-project JSON compatible with project loading and `arazilab/analysis_tools`.
+- Explain the agent workflow in an in-app guide with a visual process graph.
+- Show hover explanations for code status, document status, coverage, certainty, count, and audit tags.
 
 ## Run
 
@@ -101,7 +103,6 @@ The All data JSON export is the complete project backup. It can be loaded into Q
           "code_ids": ["C001"],
           "annotations": ["Trust Boundaries"],
           "certainty": 5,
-          "polarity": "negative",
           "rationale": "Short explanation of the assignment."
         }
       ]

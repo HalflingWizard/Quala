@@ -132,6 +132,10 @@ if (!elements.auditDocFilter || !elements.auditSortBtn) {
   throw new Error("Audit filter or sort controls are not available.");
 }
 
+if (!elements.howView || !html.includes("workflowGraph") || !html.includes('data-view="how"')) {
+  throw new Error("How it works page or workflow graph is missing.");
+}
+
 if (!elements.processQueueBtn || html.includes("processCurrentBtn") || html.includes("processNextBtn")) {
   throw new Error("Workspace processing controls were not simplified.");
 }
@@ -310,9 +314,37 @@ const firstDocAnnotation = context.exportPayload().data.find((doc) => doc.id ===
 if (
   firstDocAnnotation?.quotes.length !== 1 ||
   firstDocAnnotation.quotes[0].quote !== "beta" ||
-  !firstDocAnnotation.annotation.includes(existingCode.name)
+  !firstDocAnnotation.annotation.includes(existingCode.name) ||
+  "polarity" in firstDocAnnotation.quotes[0]
 ) {
   throw new Error("The first document did not save its verified code annotation.");
+}
+const legacyAnnotation = context.normalizeAnnotationDoc({
+  id: "legacy",
+  quotes: [
+    {
+      quote: "beta",
+      code_ids: [existingCode.code_id],
+      annotations: [existingCode.name],
+      certainty: 5,
+      polarity: "mixed",
+      rationale: "Legacy record."
+    }
+  ]
+});
+if ("polarity" in legacyAnnotation.quotes[0]) {
+  throw new Error("Legacy polarity was not removed.");
+}
+context.renderAnnotations();
+const renderedAnnotations = (elements.annotationList.children || []).map((item) => item.innerHTML).join("");
+if (renderedAnnotations.includes("mixed") || !renderedAnnotations.includes('title="Code assigned to this exact quote."')) {
+  throw new Error("Annotation tags still show polarity or lack hover explanations.");
+}
+if (
+  !context.tagTooltip("code_status", "active").includes("available") ||
+  !context.tagTooltip("coverage", "2/3").includes("2/3")
+) {
+  throw new Error("Tag tooltips are missing useful explanations.");
 }
 
 const processDocSource = context.processDoc.toString();
@@ -364,6 +396,9 @@ if (!xmlText.includes("<Workbook") || !xmlText.includes('ss:Name="Codebook"') ||
 const plainText = context.textExport("codebook");
 if (!plainText.includes("# Codebook")) {
   throw new Error("TXT export is missing the codebook section.");
+}
+if (context.exportRows("annotations").some((sheet) => sheet.rows.some((row) => "polarity" in row))) {
+  throw new Error("Polarity is still present in annotation exports.");
 }
 const logText = context.textExport("logs");
 if (!logText.includes("# Audit log")) {

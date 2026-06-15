@@ -548,6 +548,80 @@
         color: #1e3a8a;
       }
 
+      .workflowGraph {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+        margin-top: 16px;
+      }
+
+      .workflowNode {
+        position: relative;
+        border: 1px solid #bfdbfe;
+        border-radius: 12px;
+        padding: 14px;
+        background: #eff6ff;
+      }
+
+      .workflowNode::after {
+        content: "→";
+        position: absolute;
+        top: 50%;
+        right: -19px;
+        z-index: 1;
+        color: var(--accent);
+        font-size: 22px;
+        font-weight: 700;
+        transform: translateY(-50%);
+      }
+
+      .workflowNode:nth-child(3)::after {
+        content: "↓";
+        top: auto;
+        right: 50%;
+        bottom: -24px;
+        transform: translateX(50%);
+      }
+
+      .workflowNode:nth-child(4) {
+        grid-column: 3;
+      }
+
+      .workflowNode:nth-child(5) {
+        grid-column: 2;
+        grid-row: 2;
+      }
+
+      .workflowNode:nth-child(6) {
+        grid-column: 1;
+        grid-row: 2;
+      }
+
+      .workflowNode:nth-child(4)::after,
+      .workflowNode:nth-child(5)::after {
+        content: "←";
+        right: auto;
+        left: -19px;
+      }
+
+      .workflowNode:nth-child(6)::after {
+        display: none;
+      }
+
+      .agentGrid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+        margin-top: 16px;
+      }
+
+      .agentCard {
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 12px;
+        background: var(--panel);
+      }
+
       .fileInput {
         display: none;
       }
@@ -565,8 +639,30 @@
 
         .grid2,
         .grid3,
-        .statGrid {
+        .statGrid,
+        .workflowGraph,
+        .agentGrid {
           grid-template-columns: 1fr;
+        }
+
+        .workflowNode,
+        .workflowNode:nth-child(4),
+        .workflowNode:nth-child(5),
+        .workflowNode:nth-child(6) {
+          grid-column: 1;
+          grid-row: auto;
+        }
+
+        .workflowNode::after,
+        .workflowNode:nth-child(3)::after,
+        .workflowNode:nth-child(4)::after,
+        .workflowNode:nth-child(5)::after {
+          content: "↓";
+          top: auto;
+          right: 50%;
+          bottom: -24px;
+          left: auto;
+          transform: translateX(50%);
         }
       }
     </style>
@@ -594,6 +690,7 @@
           <button class="navBtn" data-view="annotations">Annotations <span class="pill" id="annPill">0 quotes</span></button>
           <button class="navBtn" data-view="audit">Audit log <span class="pill">log</span></button>
           <button class="navBtn" data-view="history">History <span class="pill" id="histPill">0</span></button>
+          <button class="navBtn" data-view="how">How it works <span class="pill">?</span></button>
           <button class="navBtn" data-view="preferences">Preferences <span class="pill" id="modelPill">model</span></button>
         </div>
         <hr />
@@ -735,6 +832,61 @@
             <button id="snapshotBtn">Create snapshot</button>
           </div>
           <div id="historyList" class="list" style="margin-top: 14px"></div>
+        </section>
+
+        <section id="howView" class="view panel hidden">
+          <div>
+            <h2>How Quala works</h2>
+            <p class="muted small">
+              Quala separates discovery, comparison, codebook change, application, and verification so each decision can be reviewed in the audit log.
+            </p>
+          </div>
+
+          <div class="workflowGraph" aria-label="Quala workflow">
+            <div class="workflowNode">
+              <h3>1. Document Scout</h3>
+              <p class="small">Reads the document without seeing the codebook. Finds possible concepts and context-rich exact quotes.</p>
+            </div>
+            <div class="workflowNode">
+              <h3>2. Novelty Detector</h3>
+              <p class="small">Compares scout findings with the current codebook. Decides whether each concept is new, covered, or a possible merge.</p>
+            </div>
+            <div class="workflowNode">
+              <h3>3. Merge Reviewer</h3>
+              <p class="small">Reviews similar concepts and argues for and against merging before recommending a decision.</p>
+            </div>
+            <div class="workflowNode">
+              <h3>4. Codebook Update</h3>
+              <p class="small">Quala adds verified new codes or applies approved merges. Stable code IDs preserve links across documents.</p>
+            </div>
+            <div class="workflowNode">
+              <h3>5. Codebook Applier</h3>
+              <p class="small">Uses the updated active codebook on the same document. It can apply codes but cannot create them.</p>
+            </div>
+            <div class="workflowNode">
+              <h3>6. Evidence Auditor</h3>
+              <p class="small">Checks that every saved quote is an exact contiguous part of the source document. Only verified annotations are saved.</p>
+            </div>
+          </div>
+
+          <div class="agentGrid">
+            <div class="agentCard">
+              <h3>How the codebook grows</h3>
+              <p class="small">The Scout proposes evidence. The Novelty Detector compares it. The Merge Reviewer checks overlap. Quala updates the codebook before the Applier uses it.</p>
+            </div>
+            <div class="agentCard">
+              <h3>Human control</h3>
+              <p class="small">You can edit or reject codes, restore history snapshots, inspect each agent's prompt and output, and export troubleshooting logs.</p>
+            </div>
+            <div class="agentCard">
+              <h3>Coverage</h3>
+              <p class="small">Coverage shows how many loaded datapoints contain verified evidence for a code. Codes are shown from highest to lowest coverage.</p>
+            </div>
+            <div class="agentCard">
+              <h3>Exact quote protection</h3>
+              <p class="small">Model quotes are never saved unless the complete quote is found in the source datapoint without rewriting or ellipses.</p>
+            </div>
+          </div>
         </section>
 
         <section id="preferencesView" class="view panel hidden">

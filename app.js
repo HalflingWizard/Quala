@@ -213,7 +213,10 @@
         return {
           ...doc,
           quotes: (doc.quotes || []).map((quote) => ({
-            ...quote,
+            id: quote.id,
+            quote: quote.quote,
+            certainty: quote.certainty,
+            rationale: quote.rationale,
             code_ids: quote.code_ids || [],
             annotations: quote.annotations || []
           }))
@@ -363,7 +366,7 @@
           div.innerHTML = `
             <div class="itemTitle">
               <span>${escapeHtml(item.id)}</span>
-              <span class="pill ${item.status === "coded" ? "ok" : "warn"}">${item.status || "queued"}</span>
+              <span class="pill ${item.status === "coded" ? "ok" : "warn"}" title="${escapeHtml(tagTooltip("document_status", item.status || "queued"))}">${item.status || "queued"}</span>
             </div>
             <div class="muted small">${escapeHtml(item.source || "No source")}</div>
             <div class="muted tiny">${item.text.length.toLocaleString()} characters</div>
@@ -403,7 +406,7 @@
             <td>
               <strong>${escapeHtml(code.name)}</strong>
               <div class="muted tiny">${escapeHtml(code.code_id)}</div>
-              <span class="pill ${code.status === "active" ? "ok" : ""}">${escapeHtml(code.status)}</span>
+              <span class="pill ${code.status === "active" ? "ok" : ""}" title="${escapeHtml(tagTooltip("code_status", code.status))}">${escapeHtml(code.status)}</span>
             </td>
             <td>${escapeHtml(code.definition || "")}</td>
             <td>
@@ -411,7 +414,7 @@
               ${example?.doc_id ? `<div class="muted tiny" style="margin-top: 4px">Datapoint ${escapeHtml(example.doc_id)}</div>` : ""}
             </td>
             <td>
-              <span class="pill">${coverage.percent}%</span>
+              <span class="pill" title="${escapeHtml(tagTooltip("coverage", `${coverage.count}/${coverage.total}`))}">${coverage.percent}%</span>
               <div class="muted tiny" style="margin-top: 4px">${coverage.count}/${coverage.total} datapoints</div>
             </td>
             <td><button data-edit-code="${escapeHtml(code.id)}">Edit</button></td>
@@ -447,7 +450,7 @@
             const actor = auditActor(entry);
             const stats = entry.stats || legacyAuditStats(entry);
             const statsHtml = Object.entries(stats)
-              .map(([key, value]) => `<span class="pill">${escapeHtml(humanizeKey(key))} ${escapeHtml(value)}</span>`)
+              .map(([key, value]) => `<span class="pill" title="${escapeHtml(tagTooltip("audit_stat", key))}">${escapeHtml(humanizeKey(key))} ${escapeHtml(value)}</span>`)
               .join("");
             const detailPayload = {
               summary: entry.summary || entry.reason || "",
@@ -463,7 +466,7 @@
                   ${escapeHtml(entry.title || humanizeKey(entry.event_type))}
                   <span class="auditActor ${escapeHtml(actor.type)}">${escapeHtml(actor.icon)} ${escapeHtml(actor.label)}</span>
                 </span>
-                <span class="pill">${escapeHtml(entry.doc_id || "system")}</span>
+                <span class="pill" title="${escapeHtml(tagTooltip("datapoint", entry.doc_id || "system"))}">${escapeHtml(entry.doc_id || "system")}</span>
               </div>
               <div class="muted tiny">${escapeHtml(entry.timestamp)}</div>
               <p class="small" style="margin-top: 8px">${escapeHtml(entry.summary || entry.reason || "")}</p>
@@ -535,6 +538,30 @@
           .replace(/\b\w/g, (letter) => letter.toUpperCase());
       }
 
+      function tagTooltip(type, value) {
+        const codeStatuses = {
+          active: "This code is available for annotation.",
+          dormant: "This code stays in the codebook but currently has no recent verified use.",
+          merged: "This code was combined with another code and is not applied separately.",
+          rejected: "A human rejected or deleted this code.",
+          candidate: "This code is proposed but has not completed review.",
+          needs_human_review: "This code needs a human decision."
+        };
+        const documentStatuses = {
+          queued: "This datapoint is waiting to be processed.",
+          coded: "This datapoint completed the full coding workflow."
+        };
+        if (type === "code_status") return codeStatuses[value] || "Current codebook status.";
+        if (type === "document_status") return documentStatuses[value] || "Current datapoint processing status.";
+        if (type === "coverage") return `${value} loaded datapoints contain verified evidence for this code.`;
+        if (type === "certainty") return "Quala currently uses certainty 5 for exact verified code applications.";
+        if (type === "code") return "Code assigned to this exact quote.";
+        if (type === "datapoint") return value === "system" ? "This event applies to the project rather than one datapoint." : `This event belongs to datapoint ${value}.`;
+        if (type === "count") return "Number of exact verified quotes saved for this datapoint.";
+        if (type === "audit_stat") return `Audit statistic ${humanizeKey(value)}. Open full details for its inputs and outputs.`;
+        return "More information about this tag.";
+      }
+
       function renderAnnotations() {
         els.annotationList.innerHTML = "";
         if (!state.annotations.length) {
@@ -549,9 +576,8 @@
               (q) => `
                 <div class="item" style="margin-top: 8px">
                   <div class="row">
-                    ${(q.annotations || []).map((a) => `<span class="pill">${escapeHtml(a)}</span>`).join("")}
-                    <span class="pill ${q.polarity === "positive" ? "ok" : q.polarity === "negative" ? "bad" : ""}">${escapeHtml(q.polarity || "mixed")}</span>
-                    <span class="pill">certainty ${Number(q.certainty || 0)}</span>
+                    ${(q.annotations || []).map((a) => `<span class="pill" title="${escapeHtml(tagTooltip("code", a))}">${escapeHtml(a)}</span>`).join("")}
+                    <span class="pill" title="${escapeHtml(tagTooltip("certainty"))}">certainty ${Number(q.certainty || 0)}</span>
                   </div>
                   <div class="quote small" style="margin-top: 8px">${escapeHtml(q.quote)}</div>
                   <p class="muted small" style="margin-top: 8px">${escapeHtml(q.rationale || "")}</p>
@@ -561,7 +587,7 @@
           div.innerHTML = `
             <div class="itemTitle">
               <span>${escapeHtml(doc.id)}</span>
-              <span class="pill">${doc.quotes.length} quotes</span>
+              <span class="pill" title="${escapeHtml(tagTooltip("count"))}">${doc.quotes.length} quotes</span>
             </div>
             <div class="muted small">${escapeHtml(doc.source || "")}</div>
             ${quotes || `<p class="muted small" style="margin-top: 8px">No matching quotes.</p>`}
@@ -1630,7 +1656,6 @@
               code_ids: [code.code_id],
               annotations: [code.name],
               certainty: 5,
-              polarity: "mixed",
               rationale: instance.reason || ""
             };
           const existing = byQuote.get(quote.quote);
@@ -1856,7 +1881,14 @@
             source: doc.source,
             text: doc.text,
             annotation: doc.annotation,
-            quotes: doc.quotes
+            quotes: (doc.quotes || []).map((quote) => ({
+              id: quote.id,
+              quote: quote.quote,
+              code_ids: quote.code_ids || [],
+              annotations: quote.annotations || [],
+              certainty: quote.certainty,
+              rationale: quote.rationale
+            }))
           }))
         };
       }
@@ -1903,7 +1935,6 @@
             code_ids: (quote.code_ids || []).join(", "),
             annotations: (quote.annotations || []).join(", "),
             certainty: quote.certainty,
-            polarity: quote.polarity,
             rationale: quote.rationale
           }))
         );
