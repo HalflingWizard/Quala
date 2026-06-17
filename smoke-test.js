@@ -124,6 +124,29 @@ if (!elements.mergePrompt) {
   throw new Error("Merge reviewer prompt is not available.");
 }
 
+if (elements.codingUnitSize.value !== 3 || elements.codeAbstraction.value !== 3) {
+  throw new Error("Coding behavior defaults did not render.");
+}
+
+if (
+  !html.includes("<h3>Coding behavior</h3>") ||
+  !html.includes("<h3>LLM parameters</h3>") ||
+  !html.includes("<h3>Prompt templates</h3>") ||
+  !html.includes('id="codingUnitSize"') ||
+  !html.includes('id="codeAbstraction"') ||
+  !html.includes('id="codingBehaviorDemo"') ||
+  !html.includes("tooltipBtn")
+) {
+  throw new Error("Preferences sections, coding demo, coding sliders, or parameter tooltips are missing.");
+}
+if (
+  !elements.codingBehaviorDemo.innerHTML.includes("Short passage excerpts with Interpretive codes") ||
+  !elements.codingBehaviorDemo.innerHTML.includes("communication overload") ||
+  !elements.codingBehaviorDemo.innerHTML.includes("<mark>")
+) {
+  throw new Error("Coding behavior demo did not render the default highlighted example.");
+}
+
 if (!elements.deleteCodeBtn) {
   throw new Error("Delete code button is not available.");
 }
@@ -280,6 +303,7 @@ if (coveredPacket.active_codes_added.length !== 0) {
 const firstDoc = { id: "D1", source: "test.txt", text: "alpha beta gamma" };
 const scoutPrompt = context.buildScoutPrompt(firstDoc);
 const applierPrompt = context.buildApplierPrompt(firstDoc);
+const scoutInput = JSON.parse(scoutPrompt[1].content);
 const firstDocApplierInput = JSON.parse(applierPrompt[1].content);
 const quoteQualityText = `${scoutPrompt[0].content} ${applierPrompt[0].content} ${firstDocApplierInput.required_behavior.join(" ")}`;
 if (
@@ -288,6 +312,32 @@ if (
   !quoteQualityText.includes("contiguous")
 ) {
   throw new Error("Agent prompts are missing the contextual quote quality rules.");
+}
+if (
+  !scoutInput.coding_behavior_instruction.includes("Short passage") ||
+  !scoutInput.coding_behavior_instruction.includes("Interpretive") ||
+  !scoutInput.coding_behavior_instruction.includes("Do not treat the whole document as one code.") ||
+  !firstDocApplierInput.coding_behavior_instruction.includes("The code label must follow the selected abstraction level.")
+) {
+  throw new Error("Coding behavior prompt instructions are missing from open coding prompts.");
+}
+elements.codingUnitSize.value = "5";
+elements.codeAbstraction.value = "1";
+context.readPreferences();
+context.renderCodingBehaviorPanels();
+const adjustedScoutInput = JSON.parse(context.buildScoutPrompt(firstDoc)[1].content);
+if (
+  !adjustedScoutInput.coding_behavior_instruction.includes("Multi-paragraph theme") ||
+  !adjustedScoutInput.coding_behavior_instruction.includes("In-Vivo")
+) {
+  throw new Error("Coding behavior slider values were not saved into preferences.");
+}
+if (
+  !elements.codingBehaviorDemo.innerHTML.includes("Multi-paragraph theme excerpts with In-Vivo codes") ||
+  !elements.codingBehaviorDemo.innerHTML.includes("instant replies") ||
+  !elements.codingBehaviorDemo.innerHTML.includes("It does not mean every possible nugget should be coded.")
+) {
+  throw new Error("Coding behavior demo did not update after slider changes.");
 }
 if (!firstDocApplierInput.codebook.some((code) => code.code_id === existingCode.code_id)) {
   throw new Error("A code created from the first document was missing from its applier prompt.");

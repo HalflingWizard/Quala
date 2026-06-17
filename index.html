@@ -242,6 +242,116 @@
         min-width: 0;
       }
 
+      .prefSection {
+        margin-top: 14px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 14px;
+        background: var(--panel);
+      }
+
+      .prefSection + .prefSection {
+        margin-top: 16px;
+      }
+
+      .prefSectionHead {
+        margin-bottom: 12px;
+      }
+
+      .sliderLabels {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 6px;
+        margin-top: 6px;
+        color: var(--muted);
+        font-size: 12px;
+        text-align: center;
+        overflow-wrap: anywhere;
+      }
+
+      .behaviorPanel {
+        margin-top: 10px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 10px;
+        background: #fff;
+        display: grid;
+        gap: 6px;
+        font-size: 13px;
+      }
+
+      .behaviorPanelTitle {
+        font-weight: 800;
+      }
+
+      .behaviorDemo {
+        display: grid;
+        grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
+        gap: 12px;
+        margin-top: 12px;
+      }
+
+      .demoText,
+      .demoCodes {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 12px;
+        background: #fff;
+      }
+
+      .demoText {
+        display: grid;
+        gap: 8px;
+        line-height: 1.6;
+      }
+
+      .demoText mark {
+        border-radius: 4px;
+        padding: 1px 3px;
+        background: #bfdbfe;
+        color: #1e3a8a;
+      }
+
+      .demoCodes {
+        display: grid;
+        gap: 10px;
+      }
+
+      .demoCodeRow {
+        border-top: 1px solid var(--border);
+        padding-top: 8px;
+        display: grid;
+        gap: 5px;
+      }
+
+      .demoCodeRow blockquote {
+        margin: 0;
+        border-left: 3px solid var(--accent-soft);
+        padding-left: 8px;
+        color: var(--text);
+      }
+
+      .labelRow {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 6px;
+      }
+
+      .labelRow label {
+        margin-bottom: 0;
+      }
+
+      .tooltipBtn {
+        width: 22px;
+        height: 22px;
+        border-radius: 999px;
+        padding: 0;
+        font-size: 12px;
+        font-weight: 800;
+        line-height: 1;
+      }
+
       .statGrid {
         display: grid;
         grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -640,6 +750,7 @@
         .grid2,
         .grid3,
         .statGrid,
+        .behaviorDemo,
         .workflowGraph,
         .agentGrid {
           grid-template-columns: 1fr;
@@ -893,70 +1004,132 @@
           <div class="row between">
             <div>
               <h2>Preferences</h2>
-              <p class="muted small">Set the API key, model, parameters, study lens, and editable prompts.</p>
+              <p class="muted small">Set coding behavior, model settings, and editable prompts.</p>
             </div>
             <button id="loadModelsBtn" class="primary">Load models</button>
           </div>
 
-          <div class="grid3" style="margin-top: 14px">
-            <div>
-              <label for="apiKey">OpenAI API key</label>
-              <input id="apiKey" type="password" autocomplete="off" placeholder="sk..." />
+          <div class="prefSection">
+            <div class="prefSectionHead">
+              <h3>Coding behavior</h3>
+              <p class="muted small">Control how the app breaks text into coding units and how abstract the generated code labels should be.</p>
             </div>
-            <div>
-              <label for="modelSelect">Model</label>
-              <select id="modelSelect"></select>
-            </div>
-            <div>
-              <label for="temperature">Temperature</label>
-              <input id="temperature" type="number" min="0" max="2" step="0.1" />
-            </div>
-            <div>
-              <label for="verbosity">Verbosity</label>
-              <select id="verbosity">
-                <option>low</option>
-                <option>medium</option>
-                <option>high</option>
-              </select>
-            </div>
-            <div>
-              <label for="reasoning">Reasoning effort</label>
-              <select id="reasoning">
-                <option>minimal</option>
-                <option>low</option>
-                <option>medium</option>
-                <option>high</option>
-              </select>
-            </div>
-            <div>
-              <label for="maxQuotes">Max quotes per code</label>
-              <input id="maxQuotes" type="number" min="1" max="50" step="1" />
-            </div>
-          </div>
-          <p class="muted small" style="margin-top: 10px">
-            Quala sends temperature, verbosity, and reasoning effort only when the selected model family supports them.
-          </p>
-
-          <div class="stack" style="margin-top: 14px">
             <div>
               <label for="lens">Study lens</label>
               <textarea id="lens"></textarea>
             </div>
-            <div>
+            <div id="codingBehaviorDemo" class="behaviorDemo" aria-live="polite"></div>
+            <div style="margin-top: 12px">
+              <label for="codingUnitSize">Coding unit size</label>
+              <input id="codingUnitSize" type="range" min="1" max="5" step="1" />
+              <div class="sliderLabels" aria-hidden="true">
+                <span>Phrase</span>
+                <span>Sentence</span>
+                <span>Short passage</span>
+                <span>Paragraph</span>
+                <span>Multi-paragraph theme</span>
+              </div>
+              <div id="codingUnitSizePanel" class="behaviorPanel" aria-live="polite"></div>
+            </div>
+            <div style="margin-top: 12px">
+              <label for="codeAbstraction">Code abstraction</label>
+              <input id="codeAbstraction" type="range" min="1" max="5" step="1" />
+              <div class="sliderLabels" aria-hidden="true">
+                <span>In-Vivo</span>
+                <span>Descriptive</span>
+                <span>Interpretive</span>
+                <span>Conceptual</span>
+                <span>Theoretical</span>
+              </div>
+              <div id="codeAbstractionPanel" class="behaviorPanel" aria-live="polite"></div>
+            </div>
+          </div>
+
+          <div class="prefSection">
+            <div class="prefSectionHead">
+              <h3>LLM parameters</h3>
+              <p class="muted small">Configure the model and generation settings used by the app.</p>
+            </div>
+            <div class="grid3">
+              <div>
+                <div class="labelRow">
+                  <label for="apiKey">OpenAI API key</label>
+                  <button class="tooltipBtn" type="button" title="The key used to connect to the selected LLM provider. It is stored according to the app's existing storage behavior.">?</button>
+                </div>
+                <input id="apiKey" type="password" autocomplete="off" placeholder="sk..." />
+              </div>
+              <div>
+                <div class="labelRow">
+                  <label for="modelSelect">Model</label>
+                  <button class="tooltipBtn" type="button" title="The model used to generate coding, reviewing, merging, and applying outputs.">?</button>
+                </div>
+                <select id="modelSelect"></select>
+              </div>
+              <div>
+                <div class="labelRow">
+                  <label for="temperature">Temperature</label>
+                  <button class="tooltipBtn" type="button" title="Controls randomness. Lower values are more consistent. Higher values are more varied.">?</button>
+                </div>
+                <input id="temperature" type="number" min="0" max="2" step="0.1" />
+              </div>
+              <div>
+                <div class="labelRow">
+                  <label for="verbosity">Verbosity</label>
+                  <button class="tooltipBtn" type="button" title="Controls how detailed supported model responses should be.">?</button>
+                </div>
+                <select id="verbosity">
+                  <option>low</option>
+                  <option>medium</option>
+                  <option>high</option>
+                </select>
+              </div>
+              <div>
+                <div class="labelRow">
+                  <label for="reasoning">Reasoning effort</label>
+                  <button class="tooltipBtn" type="button" title="Controls how much reasoning effort supported models should use.">?</button>
+                </div>
+                <select id="reasoning">
+                  <option>minimal</option>
+                  <option>low</option>
+                  <option>medium</option>
+                  <option>high</option>
+                </select>
+              </div>
+              <div>
+                <div class="labelRow">
+                  <label for="maxQuotes">Max quotes per code</label>
+                  <button class="tooltipBtn" type="button" title="Controls the maximum number of quotes the model may return for one code.">?</button>
+                </div>
+                <input id="maxQuotes" type="number" min="1" max="50" step="1" />
+              </div>
+            </div>
+            <p class="muted small" style="margin-top: 10px">
+              Quala sends temperature, verbosity, and reasoning effort only when the selected model family supports them.
+            </p>
+          </div>
+
+          <div class="prefSection">
+            <div class="prefSectionHead">
+              <h3>Prompt templates</h3>
+              <p class="muted small">Advanced prompt settings used by different stages of the analysis pipeline.</p>
+            </div>
+            <div class="stack">
+              <div>
               <label for="codebookPrompt">Scout prompt</label>
               <textarea id="codebookPrompt"></textarea>
-            </div>
-            <div>
-              <label for="refinePrompt">Novelty prompt</label>
-              <textarea id="refinePrompt"></textarea>
-            </div>
-            <div>
-              <label for="mergePrompt">Merge reviewer prompt</label>
-              <textarea id="mergePrompt"></textarea>
-            </div>
-            <div>
-              <label for="annotationPrompt">Applier prompt</label>
-              <textarea id="annotationPrompt"></textarea>
+              </div>
+              <div>
+                <label for="refinePrompt">Novelty prompt</label>
+                <textarea id="refinePrompt"></textarea>
+              </div>
+              <div>
+                <label for="mergePrompt">Merge reviewer prompt</label>
+                <textarea id="mergePrompt"></textarea>
+              </div>
+              <div>
+                <label for="annotationPrompt">Applier prompt</label>
+                <textarea id="annotationPrompt"></textarea>
+              </div>
             </div>
           </div>
         </section>

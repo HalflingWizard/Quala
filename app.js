@@ -17,6 +17,8 @@
           reasoning: "low",
           temperature: 0.2,
           maxQuotes: 12,
+          codingUnitSize: 3,
+          codeAbstraction: 3,
           lens:
             "This is a general qualitative study. Identify recurring themes, important differences between participants or documents, unexpected concerns, helpful or harmful experiences, needs, barriers, motivations, decisions, and concrete examples that answer the research question.",
           codebookPrompt:
@@ -31,6 +33,132 @@
       };
 
       const CODE_STATUSES = ["active", "merged", "dormant", "rejected", "needs_human_review", "candidate"];
+      const CODING_BEHAVIOR_DEMO = {
+        paragraphs: [
+          "In our team, everyone expects instant replies. I spend half my day answering Slack messages. Then I have no time left for actual work. I keep switching between Slack, email, and meetings, and I cannot focus.",
+          "When deadlines are close, I reply even faster because I do not want to block anyone. By the end of the day, I feel busy but not productive."
+        ],
+        excerpts: {
+          1: ["instant replies", "no time left for actual work"],
+          2: [
+            "I spend half my day answering Slack messages.",
+            "I keep switching between Slack, email, and meetings, and I cannot focus."
+          ],
+          3: [
+            "I spend half my day answering Slack messages. Then I have no time left for actual work.",
+            "When deadlines are close, I reply even faster because I do not want to block anyone. By the end of the day, I feel busy but not productive."
+          ],
+          4: [
+            "In our team, everyone expects instant replies. I spend half my day answering Slack messages. Then I have no time left for actual work. I keep switching between Slack, email, and meetings, and I cannot focus."
+          ],
+          5: [
+            "In our team, everyone expects instant replies. I spend half my day answering Slack messages. Then I have no time left for actual work. I keep switching between Slack, email, and meetings, and I cannot focus.\n\nWhen deadlines are close, I reply even faster because I do not want to block anyone. By the end of the day, I feel busy but not productive."
+          ]
+        },
+        codes: {
+          1: ["instant replies", "busy but not productive"],
+          2: ["frequent message responding", "difficulty maintaining focus"],
+          3: ["communication overload", "pressure to stay responsive"],
+          4: ["attention fragmentation", "responsiveness norms"],
+          5: ["coordination costs reducing focused work", "availability expectations shaping productivity"]
+        }
+      };
+      const CODING_UNIT_OPTIONS = {
+        1: {
+          label: "Phrase",
+          explanation: "Code the smallest meaningful phrases. Use very short excerpts. Avoid combining nearby ideas.",
+          exampleQuote: "I have no time left",
+          exampleCode: "no time left",
+          summary: "Expected excerpt length is a very short phrase.",
+          prompt:
+            "Use the smallest meaningful phrases as coding units. Keep excerpts very short. Do not combine separate ideas."
+        },
+        2: {
+          label: "Sentence",
+          explanation:
+            "Code sentence-level meaning units. One code usually covers one sentence, or two tightly connected sentences.",
+          exampleQuote: "I spend half my day answering Slack messages.",
+          exampleCode: "time spent answering Slack messages",
+          summary: "Expected excerpt length is usually one sentence.",
+          prompt:
+            "Use sentence-level meaning units. A code should usually cover one sentence, or two tightly connected sentences."
+        },
+        3: {
+          label: "Short passage",
+          explanation: "Code complete ideas. One code usually covers two to four sentences when they express the same point.",
+          exampleQuote: "I spend half my day answering Slack messages. Then I have no time left for actual work.",
+          exampleCode: "communication overload",
+          summary: "Expected excerpt length is a short passage with one complete idea.",
+          prompt:
+            "Use short passages as coding units. A code should usually cover one complete idea, often two to four sentences."
+        },
+        4: {
+          label: "Paragraph",
+          explanation: "Code paragraph-sized meaning units. Merge nearby sentences when they form one coherent idea.",
+          exampleQuote: "A paragraph where the participant explains one connected experience across several sentences.",
+          exampleCode: "workflow disruption",
+          summary: "Expected excerpt length is close to one coherent paragraph.",
+          prompt:
+            "Use paragraph-level meaning units. Merge adjacent sentences when they form one coherent idea."
+        },
+        5: {
+          label: "Multi-paragraph theme",
+          explanation: "Code larger sections when they express one shared theme. Use fewer, broader excerpts.",
+          exampleQuote: "Several connected paragraphs that build one shared theme.",
+          exampleCode: "organizational communication burden",
+          summary: "Expected excerpt length can span multiple paragraphs when they share one theme.",
+          prompt:
+            "Use larger sections as coding units when they express one shared theme. Generate fewer, broader excerpts."
+        }
+      };
+      const CODE_ABSTRACTION_OPTIONS = {
+        1: {
+          label: "In-Vivo",
+          explanation: "Use the participant's own words whenever possible. Stay very close to the text. Avoid interpretation.",
+          exampleQuote: "I have no time left for actual work",
+          exampleCode: "no time left for actual work",
+          summary: "Interpretation level is very low. Code labels should stay close to participant wording.",
+          prompt:
+            "Generate codes using the participant's own words whenever possible. Stay extremely close to the text. Avoid interpretation. Code labels may be direct quotes or lightly cleaned participant phrases."
+        },
+        2: {
+          label: "Descriptive",
+          explanation: "Describe observable actions, experiences, perceptions, or events. Keep interpretation low.",
+          exampleQuote: "I spend half my day answering Slack messages",
+          exampleCode: "excessive time spent responding to messages",
+          summary: "Interpretation level is low. Code labels should describe what is visible in the excerpt.",
+          prompt:
+            "Generate codes that describe observable actions, experiences, perceptions, or events. Minimize interpretation. Prefer concrete labels over abstract labels."
+        },
+        3: {
+          label: "Interpretive",
+          explanation:
+            "Capture the underlying meaning of the statement. Move beyond surface description, while staying grounded in the data.",
+          exampleQuote: "I spend half my day answering Slack messages and then I have no time left for actual work",
+          exampleCode: "communication overload",
+          summary: "Interpretation level is moderate. Code labels should name the meaning behind the excerpt.",
+          prompt:
+            "Generate codes that capture the underlying meaning of participant statements. Move beyond surface description, but keep every code grounded in the excerpt."
+        },
+        4: {
+          label: "Conceptual",
+          explanation: "Use broader concepts that may connect multiple statements. Focus on patterns and shared meanings.",
+          exampleQuote: "I keep switching between Slack, email, and meetings, and I cannot focus",
+          exampleCode: "attention fragmentation",
+          summary: "Interpretation level is high. Code labels may connect patterns across related excerpts.",
+          prompt:
+            "Generate codes that represent broader concepts and recurring patterns. Codes may synthesize related observations, but must still be traceable to the excerpt."
+        },
+        5: {
+          label: "Theoretical",
+          explanation: "Use codes that describe mechanisms, processes, structures, or theoretical constructs.",
+          exampleQuote: "Everyone expects instant replies, so I keep stopping my work to respond",
+          exampleCode: "coordination costs reducing knowledge-worker productivity",
+          summary: "Interpretation level is very high. Code labels may describe mechanisms, but need support from the excerpt.",
+          prompt:
+            "Generate codes that represent mechanisms, processes, structures, or theoretical constructs that explain the observed experiences. Avoid unsupported speculation."
+        }
+      };
       const LEGACY_DEFAULT_PROMPTS = {
         lens: [
           "The study is about epilepsy self management, technology for self management, social support, and HCI design opportunities. Prefer surprising, novel, specific, and useful codes. Avoid ordinary facts that someone could learn from a quick web search.",
@@ -68,6 +196,9 @@
         clearDocsBtn: $("clearDocsBtn"),
         codebookPrompt: $("codebookPrompt"),
         codebookRows: $("codebookRows"),
+        codeAbstraction: $("codeAbstraction"),
+        codeAbstractionPanel: $("codeAbstractionPanel"),
+        codingBehaviorDemo: $("codingBehaviorDemo"),
         codeModal: $("codeModal"),
         codePill: $("codePill"),
         confirmExportBtn: $("confirmExportBtn"),
@@ -81,6 +212,8 @@
         docList: $("docList"),
         docSource: $("docSource"),
         docText: $("docText"),
+        codingUnitSize: $("codingUnitSize"),
+        codingUnitSizePanel: $("codingUnitSizePanel"),
         editCodeDefinition: $("editCodeDefinition"),
         editCodeExample: $("editCodeExample"),
         editCodeId: $("editCodeId"),
@@ -323,6 +456,8 @@
         els.verbosity.value = state.preferences.verbosity;
         els.reasoning.value = state.preferences.reasoning;
         els.maxQuotes.value = state.preferences.maxQuotes;
+        els.codingUnitSize.value = state.preferences.codingUnitSize || defaults.preferences.codingUnitSize;
+        els.codeAbstraction.value = state.preferences.codeAbstraction || defaults.preferences.codeAbstraction;
         els.lens.value = state.preferences.lens;
         els.codebookPrompt.value = state.preferences.codebookPrompt;
         els.refinePrompt.value = state.preferences.refinePrompt;
@@ -336,7 +471,79 @@
           option.selected = model === state.preferences.model;
           els.modelSelect.appendChild(option);
         }
+        renderCodingBehaviorPanels();
         els.modelPill.textContent = state.preferences.model || "model";
+      }
+
+      function renderCodingBehaviorPanels() {
+        renderCodingBehaviorDemo();
+        renderCodingBehaviorPanel(els.codingUnitSizePanel, CODING_UNIT_OPTIONS, Number(els.codingUnitSize.value), "Expected excerpt length");
+        renderCodingBehaviorPanel(
+          els.codeAbstractionPanel,
+          CODE_ABSTRACTION_OPTIONS,
+          Number(els.codeAbstraction.value),
+          "Level of interpretation"
+        );
+      }
+
+      function renderCodingBehaviorPanel(panel, options, value, summaryLabel) {
+        const item = options[value] || options[3];
+        panel.innerHTML = `
+          <div class="behaviorPanelTitle">${escapeHtml(item.label)}</div>
+          <p>${escapeHtml(item.explanation)}</p>
+          <p><strong>${escapeHtml(summaryLabel)}</strong>, ${escapeHtml(item.summary)}</p>
+        `;
+      }
+
+      function renderCodingBehaviorDemo() {
+        const unitValue = Number(els.codingUnitSize.value || defaults.preferences.codingUnitSize);
+        const abstractionValue = Number(els.codeAbstraction.value || defaults.preferences.codeAbstraction);
+        const unit = CODING_UNIT_OPTIONS[unitValue] || CODING_UNIT_OPTIONS[3];
+        const abstraction = CODE_ABSTRACTION_OPTIONS[abstractionValue] || CODE_ABSTRACTION_OPTIONS[3];
+        const excerpts = CODING_BEHAVIOR_DEMO.excerpts[unitValue] || CODING_BEHAVIOR_DEMO.excerpts[3];
+        const codes = CODING_BEHAVIOR_DEMO.codes[abstractionValue] || CODING_BEHAVIOR_DEMO.codes[3];
+        const sourceHtml = highlightedDemoSource(excerpts);
+        const codeRows = excerpts
+          .map(
+            (excerpt, index) => `
+              <div class="demoCodeRow">
+                <div class="tiny muted">Excerpt ${index + 1}</div>
+                <blockquote>${escapeHtml(excerpt)}</blockquote>
+                <div><strong>Code</strong>, ${escapeHtml(codes[index] || codes[0])}</div>
+              </div>
+            `
+          )
+          .join("");
+        els.codingBehaviorDemo.innerHTML = `
+          <div class="demoText">
+            <div class="behaviorPanelTitle">Example source text</div>
+            ${sourceHtml}
+          </div>
+          <div class="demoCodes">
+            <div class="behaviorPanelTitle">${escapeHtml(unit.label)} excerpts with ${escapeHtml(abstraction.label)} codes</div>
+            <p class="muted small">Highlighted text shows the kind of nugget the app should usually code. It does not mean every possible nugget should be coded.</p>
+            ${codeRows}
+          </div>
+        `;
+      }
+
+      function highlightedDemoSource(excerpts) {
+        return CODING_BEHAVIOR_DEMO.paragraphs
+          .map((paragraph) => `<p>${highlightDemoParagraph(paragraph, excerpts)}</p>`)
+          .join("");
+      }
+
+      function highlightDemoParagraph(paragraph, excerpts) {
+        let html = escapeHtml(paragraph);
+        const sorted = [...excerpts].sort((a, b) => b.length - a.length);
+        for (const excerpt of sorted) {
+          for (const part of excerpt.split("\n\n")) {
+            if (!part) continue;
+            const safePart = escapeHtml(part);
+            html = html.replace(safePart, `<mark>${safePart}</mark>`);
+          }
+        }
+        return html;
       }
 
       function renderStats() {
@@ -643,6 +850,8 @@
         state.preferences.verbosity = els.verbosity.value;
         state.preferences.reasoning = els.reasoning.value;
         state.preferences.maxQuotes = Number(els.maxQuotes.value || 12);
+        state.preferences.codingUnitSize = Number(els.codingUnitSize.value || defaults.preferences.codingUnitSize);
+        state.preferences.codeAbstraction = Number(els.codeAbstraction.value || defaults.preferences.codeAbstraction);
         state.preferences.lens = els.lens.value.trim();
         state.preferences.codebookPrompt = els.codebookPrompt.value.trim();
         state.preferences.refinePrompt = els.refinePrompt.value.trim();
@@ -1105,7 +1314,32 @@
           }));
       }
 
+      function getCodingBehaviorPrompt(codingUnitSize, codeAbstraction) {
+        const unit = CODING_UNIT_OPTIONS[Number(codingUnitSize)] || CODING_UNIT_OPTIONS[3];
+        const abstraction = CODE_ABSTRACTION_OPTIONS[Number(codeAbstraction)] || CODE_ABSTRACTION_OPTIONS[3];
+        return [
+          "Coding behavior instructions",
+          "",
+          `Coding unit size, ${unit.label}`,
+          unit.prompt,
+          "",
+          `Code abstraction, ${abstraction.label}`,
+          abstraction.prompt,
+          "",
+          "Guardrails",
+          "- Do not code every sentence unless the coding unit size setting asks for sentence-level coding.",
+          "- Do not treat the whole document as one code.",
+          "- Every code must be grounded in a specific excerpt.",
+          "- Do not invent themes that are not supported by the text.",
+          "- If two nearby excerpts express the same idea, merge or separate them based on the selected coding unit size.",
+          "- The code label must follow the selected abstraction level.",
+          "- The excerpt length must follow the selected coding unit size.",
+          "- Prefer consistency across the whole document."
+        ].join("\n");
+      }
+
       function buildScoutPrompt(doc) {
+        const codingBehavior = getCodingBehaviorPrompt(state.preferences.codingUnitSize, state.preferences.codeAbstraction);
         return [
           {
             role: "system",
@@ -1119,6 +1353,7 @@
                 doc_id: doc.id,
                 study_lens: state.preferences.lens,
                 scout_instruction: state.preferences.codebookPrompt,
+                coding_behavior_instruction: codingBehavior,
                 document_text: doc.text
               },
               null,
@@ -1129,6 +1364,7 @@
       }
 
       function buildApplierPrompt(doc) {
+        const codingBehavior = getCodingBehaviorPrompt(state.preferences.codingUnitSize, state.preferences.codeAbstraction);
         return [
           {
             role: "system",
@@ -1143,6 +1379,7 @@
                 document_text: doc.text,
                 codebook: codebookForModel(),
                 annotation_instruction: state.preferences.annotationPrompt,
+                coding_behavior_instruction: codingBehavior,
                 max_quotes_per_code: state.preferences.maxQuotes,
                 required_behavior: [
                   "Apply only listed code_id values.",
@@ -2265,9 +2502,16 @@
         render();
       });
 
-      [els.apiKey, els.modelSelect, els.temperature, els.verbosity, els.reasoning, els.maxQuotes, els.lens, els.codebookPrompt, els.refinePrompt, els.mergePrompt, els.annotationPrompt].forEach(
+      [els.codingUnitSize, els.codeAbstraction].forEach((el) => {
+        el.addEventListener("input", () => {
+          renderCodingBehaviorPanels();
+        });
+      });
+
+      [els.apiKey, els.modelSelect, els.temperature, els.verbosity, els.reasoning, els.maxQuotes, els.codingUnitSize, els.codeAbstraction, els.lens, els.codebookPrompt, els.refinePrompt, els.mergePrompt, els.annotationPrompt].forEach(
         (el) => el.addEventListener("change", () => {
           readPreferences();
+          renderCodingBehaviorPanels();
           saveState("Preferences auto-saved.");
         })
       );
