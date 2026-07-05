@@ -1,6 +1,7 @@
 
       const STORE_KEY = "quala-state-v1";
       const API_KEY_STORE_KEY = "quala-api-key-v1";
+      const OPENAI_API_BASE_URL = "https://api.openai.com/v1";
       const AUTOSAVE_HISTORY_COUNTS = [60, 30, 15, 5, 1, 0];
 
       const defaults = {
@@ -1579,50 +1580,99 @@
         };
       }
 
-      async function callOpenAI(input, schema, signal) {
-        if (hasDom) readPreferences();
-        if (!state.preferences.apiKey) throw new Error("Add an OpenAI API key in Preferences.");
-        const capabilities = modelCapabilities(state.preferences.model);
+      function buildModelRequest(input, schema, preferences) {
+        const capabilities = modelCapabilities(preferences.model);
         const body = {
-          model: state.preferences.model,
+          model: preferences.model,
           input,
           text: {
             format: { type: "json_schema", ...schema }
           }
         };
         if (capabilities.temperature) {
-          body.temperature = state.preferences.temperature;
+          body.temperature = preferences.temperature;
         }
         if (capabilities.verbosity) {
-          body.text.verbosity = state.preferences.verbosity;
+          body.text.verbosity = preferences.verbosity;
         }
-        if (capabilities.reasoning && state.preferences.reasoning) {
-          body.reasoning = { effort: state.preferences.reasoning };
+        if (capabilities.reasoning && preferences.reasoning) {
+          body.reasoning = { effort: preferences.reasoning };
         }
-        const response = await fetchWithTimeout(
-          "https://api.openai.com/v1/responses",
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${state.preferences.apiKey}`,
-              "Content-Type": "application/json"
-            },
-            body: JSON.stringify(body)
-          },
-          signal
-        );
-        if (!response.ok) {
-          const errText = await response.text();
-          throw new Error(`OpenAI request failed ${response.status}. ${errText}`);
-        }
-        const data = await response.json();
-        const text = data.output_text || extractResponseText(data);
-        if (!text) throw new Error("The model returned no text.");
-        return JSON.parse(text);
+        return body;
       }
 
-      async function fetchWithTimeout(url, options, signal) {
-        const timeoutMs = 120000;
+      function createQualaApi(options = {}) {
+        const baseUrl = String(options.baseUrl || OPENAI_API_BASE_URL).replace(/\/$/, "");
+        const fetchImpl = options.fetch || (typeof fetch !== "undefined" ? fetch : null);
+        const timeoutMs = options.timeoutMs || 120000;
+
+        async function request(path, requestOptions = {}, signal) {
+          if (!fetchImpl) throw new Error("No fetch implementation is available for API requests.");
+          return fetchWithTimeout(`${baseUrl}${path}`, requestOptions, signal, fetchImpl, timeoutMs);
+        }
+
+        return {
+          async createStructuredResponse({ input, schema, preferences, signal }) {
+            if (!preferences?.apiKey) throw new Error("Add an OpenAI API key in Preferences.");
+            const response = await request(
+              "/responses",
+              {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${preferences.apiKey}`,
+                  "Content-Type": "application/json"
+                },
+                body: JSON.stringify(buildModelRequest(input, schema, preferences))
+              },
+              signal
+            );
+            if (!response.ok) {
+              const errText = await response.text();
+              throw new Error(`OpenAI request failed ${response.status}. ${errText}`);
+            }
+            const data = await response.json();
+            const text = data.output_text || extractResponseText(data);
+            if (!text) throw new Error("The model returned no text.");
+            return JSON.parse(text);
+          },
+
+          async listModels({ apiKey, signal } = {}) {
+            if (!apiKey) throw new Error("Add an API key first.");
+            const response = await request(
+              "/models",
+              {
+                headers: { Authorization: `Bearer ${apiKey}` }
+              },
+              signal
+            );
+            if (!response.ok) throw new Error(`Could not load models ${response.status}.`);
+            const data = await response.json();
+            return (data.data || [])
+              .map((model) => model.id)
+              .filter((id) => /gpt|o\d|chatgpt/i.test(id))
+              .sort();
+          }
+        };
+      }
+
+      let qualaApi = createQualaApi();
+
+      function setQualaApi(api) {
+        qualaApi = api ? { ...createQualaApi(), ...api } : createQualaApi();
+        return qualaApi;
+      }
+
+      async function callModel(input, schema, signal) {
+        if (hasDom) readPreferences();
+        return qualaApi.createStructuredResponse({
+          input,
+          schema,
+          preferences: state.preferences,
+          signal
+        });
+      }
+
+      async function fetchWithTimeout(url, options, signal, fetchImpl = fetch, timeoutMs = 120000) {
         const timeoutController = new AbortController();
         const timeoutId = setTimeout(() => timeoutController.abort(), timeoutMs);
         const abortRequest = () => timeoutController.abort();
@@ -1631,7 +1681,7 @@
           else signal.addEventListener("abort", abortRequest, { once: true });
         }
         try {
-          return await fetch(url, { ...options, signal: timeoutController.signal });
+          return await fetchImpl(url, { ...options, signal: timeoutController.signal });
         } catch (error) {
           if (timeoutController.signal.aborted) {
             throw new Error(signal?.aborted ? "Processing stopped." : "OpenAI request timed out after 2 minutes.");
@@ -1641,6 +1691,10 @@
           clearTimeout(timeoutId);
           if (signal) signal.removeEventListener("abort", abortRequest);
         }
+      }
+
+      async function callOpenAI(input, schema, signal) {
+        return callModel(input, schema, signal);
       }
 
       function extractResponseText(data) {
@@ -1666,7 +1720,7 @@
         const signal = activeRun.controller.signal;
         try {
           createSnapshot("Before processing queue");
-          await processQualaQueue({ signal, docs, afterEach: render });
+          await QualaBackend.processQueue({ signal, docs, afterEach: render });
           createSnapshot("After processing queue");
           setProgress(100);
           setStatus("Queue processed.");
@@ -1691,6 +1745,9 @@
 
       async function runQualaBackend(payload, options = {}) {
         const previousState = state;
+        const previousApi = qualaApi;
+        if (options.api) setQualaApi(options.api);
+        else if (options.fetch || options.baseUrl || options.timeoutMs) setQualaApi(createQualaApi(options));
         const apiState = projectStateFromApiPayload(payload || {}, options);
         state = apiState;
         try {
@@ -1698,6 +1755,7 @@
           return exportPayload(options.exportedAt || new Date().toISOString());
         } finally {
           state = previousState;
+          qualaApi = previousApi;
         }
       }
 
@@ -2249,15 +2307,7 @@
           return;
         }
         setStatus("Loading models.");
-        const response = await fetch("https://api.openai.com/v1/models", {
-          headers: { Authorization: `Bearer ${state.preferences.apiKey}` }
-        });
-        if (!response.ok) throw new Error(`Could not load models ${response.status}.`);
-        const data = await response.json();
-        const models = (data.data || [])
-          .map((model) => model.id)
-          .filter((id) => /gpt|o\d|chatgpt/i.test(id))
-          .sort();
+        const models = await QualaBackend.listModels({ apiKey: state.preferences.apiKey });
         state.preferences.models = models.length ? models : state.preferences.models;
         if (!state.preferences.models.includes(state.preferences.model)) state.preferences.model = state.preferences.models[0];
         render();
@@ -2495,6 +2545,11 @@
       }
 
       const QualaBackend = {
+        createApi: createQualaApi,
+        setApi: setQualaApi,
+        getApi: () => qualaApi,
+        callModel,
+        listModels: (options = {}) => qualaApi.listModels(options),
         run: runQualaBackend,
         processProject: runQualaBackend,
         processQueue: processQualaQueue,
