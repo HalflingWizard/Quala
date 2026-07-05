@@ -527,6 +527,15 @@ const bestQuote = context.bestQuoteForCode(
 if (bestQuote.quote !== "A richer quote from another datapoint." || bestQuote.doc_id !== "D2") {
   throw new Error("The richest codebook quote or its datapoint ID was not selected.");
 }
+const relatedAnnotations = context.annotationsForCode(existingCode);
+if (!relatedAnnotations.some((doc) => doc.id === firstDoc.id && doc.quotes.some((quote) => quote.quote === "beta"))) {
+  throw new Error("Code annotation examples did not include matching saved quotes.");
+}
+context.renderCodebook();
+const renderedCodebook = (elements.codebookRows.children || []).map((item) => item.innerHTML).join("");
+if (!renderedCodebook.includes("data-show-code-annotations")) {
+  throw new Error("Codebook rows do not expose a click target for related annotations.");
+}
 const sortedCodeRows = context.sortCodebookRows([
   { code: { name: "Low" }, coverage: { count: 1, percent: 33 } },
   { code: { name: "Zulu" }, coverage: { count: 2, percent: 67 } },
@@ -631,6 +640,31 @@ if (loadedProject.preferences.apiKey === "should-not-load") {
 
 if (!elements.stopProcessBtn || !html.includes('id="stopProcessBtn" class="danger" disabled')) {
   throw new Error("Stop processing button is missing or enabled while idle.");
+}
+
+const originalSetItem = localStorage.setItem;
+localStorage.setItem = (key, value) => {
+  if (key === "quala-state-v1") {
+    const payload = JSON.parse(value);
+    if (payload.project.history.length) {
+      const error = new Error("quota");
+      error.name = "QuotaExceededError";
+      throw error;
+    }
+  }
+  originalSetItem.call(localStorage, key, value);
+};
+context.addDocuments([{ id: "QuotaDoc", source: "smoke", text: "This document checks quota fallback." }]);
+localStorage.setItem = originalSetItem;
+const quotaFallbackPayload = JSON.parse(storedValues["quala-state-v1"]);
+if (
+  quotaFallbackPayload.project.history.length ||
+  !quotaFallbackPayload.project.docs.some((doc) => doc.id === "QuotaDoc")
+) {
+  throw new Error("Auto-save did not fall back to the current workspace without history after quota failure.");
+}
+if (!elements.autosaveStatus.textContent.includes("without history")) {
+  throw new Error("Auto-save quota fallback did not explain that history was reduced.");
 }
 
 console.log("startup ok");

@@ -1,6 +1,7 @@
 
       const STORE_KEY = "quala-state-v1";
       const API_KEY_STORE_KEY = "quala-api-key-v1";
+      const AUTOSAVE_HISTORY_COUNTS = [60, 30, 15, 5, 1, 0];
 
       const defaults = {
         docs: [],
@@ -178,7 +179,8 @@
         ]
       };
 
-      const $ = (id) => document.getElementById(id);
+      const hasDom = typeof document !== "undefined" && typeof document.getElementById === "function";
+      const $ = (id) => (hasDom ? document.getElementById(id) : null);
       const clone = (obj) => JSON.parse(JSON.stringify(obj));
       const uid = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
 
@@ -263,6 +265,7 @@
 
       function loadState() {
         try {
+          if (typeof localStorage === "undefined") return clone(defaults);
           const localApiKey = localStorage.getItem(API_KEY_STORE_KEY) || "";
           const raw = localStorage.getItem(STORE_KEY);
           if (!raw) {
@@ -357,19 +360,72 @@
       }
 
       function saveState(message = "Auto-saved.") {
-        persistState();
-        setStatus(message);
+        const result = persistState();
+        setStatus(result.ok ? message : result.message);
       }
 
       function persistState() {
-        state.autosavedAt = new Date().toISOString();
-        localStorage.setItem(STORE_KEY, JSON.stringify(exportPayload(state.autosavedAt)));
-        localStorage.setItem(API_KEY_STORE_KEY, state.preferences.apiKey || "");
+        const autosavedAt = new Date().toISOString();
+        const result = saveProjectToLocalStorage(autosavedAt);
+        if (result.ok) state.autosavedAt = autosavedAt;
+        try {
+          localStorage.setItem(API_KEY_STORE_KEY, state.preferences.apiKey || "");
+        } catch {
+          result.ok = false;
+          result.message = "Project saved, but the browser could not save the API key.";
+        }
+        autosaveWarning = result.warning || (!result.ok ? result.message : "");
         renderAutosaveStatus();
+        return result;
+      }
+
+      function saveProjectToLocalStorage(autosavedAt) {
+        const historyCounts = AUTOSAVE_HISTORY_COUNTS.filter((count) => count <= state.history.length);
+        if (!historyCounts.includes(state.history.length)) historyCounts.unshift(state.history.length);
+        let quotaError = null;
+        for (const count of [...new Set(historyCounts)]) {
+          try {
+            const history = state.history.slice(Math.max(0, state.history.length - count));
+            localStorage.setItem(STORE_KEY, JSON.stringify(exportPayload(autosavedAt, { history })));
+            if (count === state.history.length) return { ok: true, warning: "" };
+            const message =
+              count > 0
+                ? `Auto-save kept the latest ${count} history snapshots because browser storage is almost full.`
+                : "Auto-save saved the current workspace without history because browser storage is almost full.";
+            return { ok: true, warning: message };
+          } catch (error) {
+            if (!isStorageQuotaError(error)) {
+              return { ok: false, message: "Auto-save failed. Export JSON to save this project.", warning: "" };
+            }
+            quotaError = error;
+          }
+        }
+        if (quotaError) {
+          return {
+            ok: false,
+            message: "Auto-save is too large for browser storage. Export JSON to save this project.",
+            warning: ""
+          };
+        }
+        return { ok: false, message: "Auto-save failed. Export JSON to save this project.", warning: "" };
+      }
+
+      function isStorageQuotaError(error) {
+        return (
+          error &&
+          (error.name === "QuotaExceededError" ||
+            error.name === "NS_ERROR_DOM_QUOTA_REACHED" ||
+            error.code === 22 ||
+            error.code === 1014)
+        );
       }
 
       function renderAutosaveStatus() {
         if (!els.autosaveStatus) return;
+        if (autosaveWarning) {
+          els.autosaveStatus.textContent = autosaveWarning;
+          return;
+        }
         if (!state.autosavedAt) {
           els.autosaveStatus.textContent = "Auto-save starting";
           return;
@@ -383,14 +439,17 @@
       }
 
       function setStatus(message) {
+        if (!els.statusLine) return;
         els.statusLine.textContent = message;
       }
 
       function log(message) {
+        if (!els.activityLog) return;
         els.activityLog.textContent = message;
       }
 
       function setProcessing(active) {
+        if (!els.processQueueBtn || !els.stopProcessBtn) return;
         els.processQueueBtn.disabled = active;
         els.stopProcessBtn.disabled = !active;
       }
@@ -406,11 +465,14 @@
       let shownProgress = 0;
       let progressFrame = null;
       let activeRun = null;
+      let autosaveWarning = "";
       let auditDocFilter = "all";
       let auditSortDescending = true;
+      let selectedAnnotationCodeId = "";
 
       function drawProgress(percent) {
         shownProgress = percent;
+        if (!els.progressMascot) return;
         els.progressMascot.style.setProperty("--progress", `${percent}%`);
         els.progressMascot.classList.toggle("active", percent > 0 && percent < 100);
       }
@@ -611,7 +673,9 @@
           const row = document.createElement("tr");
           row.innerHTML = `
             <td>
-              <strong>${escapeHtml(code.name)}</strong>
+              <button class="linkBtn" data-show-code-annotations="${escapeHtml(code.id)}">
+                <strong>${escapeHtml(code.name)}</strong>
+              </button>
               <div class="muted tiny">${escapeHtml(code.code_id)}</div>
               <span class="pill ${code.status === "active" ? "ok" : ""}" title="${escapeHtml(tagTooltip("code_status", code.status))}">${escapeHtml(code.status)}</span>
             </td>
@@ -630,6 +694,9 @@
         }
         els.codebookRows.querySelectorAll("[data-edit-code]").forEach((btn) => {
           btn.addEventListener("click", () => openCodeModal(btn.dataset.editCode));
+        });
+        els.codebookRows.querySelectorAll("[data-show-code-annotations]").forEach((btn) => {
+          btn.addEventListener("click", () => showCodeAnnotations(btn.dataset.showCodeAnnotations));
         });
       }
 
@@ -774,11 +841,44 @@
 
       function renderAnnotations() {
         els.annotationList.innerHTML = "";
-        if (!state.annotations.length) {
+        const selectedCode = state.codebook.find((code) => code.id === selectedAnnotationCodeId);
+        const docs = selectedCode ? annotationsForCode(selectedCode) : state.annotations;
+        if (selectedCode) {
+          const heading = document.createElement("div");
+          heading.className = "item";
+          heading.innerHTML = `
+            <div class="itemTitle">
+              <span>Examples for ${escapeHtml(selectedCode.name)}</span>
+              <button data-clear-annotation-code>Show all annotations</button>
+            </div>
+            <div class="muted small">${docs.reduce((sum, doc) => sum + doc.quotes.length, 0)} exact quotes from ${docs.length} datapoints support this code.</div>
+          `;
+          els.annotationList.appendChild(heading);
+          heading.querySelector("[data-clear-annotation-code]").addEventListener("click", () => {
+            selectedAnnotationCodeId = "";
+            renderAnnotations();
+          });
+        }
+        if (!docs.length) {
           els.annotationList.innerHTML = `<div class="item muted small">No annotations yet.</div>`;
+          if (selectedCode) {
+            els.annotationList.innerHTML = `
+              <div class="item">
+                <div class="itemTitle">
+                  <span>Examples for ${escapeHtml(selectedCode.name)}</span>
+                  <button data-clear-annotation-code>Show all annotations</button>
+                </div>
+                <div class="muted small">No saved annotations support this code yet.</div>
+              </div>
+            `;
+            els.annotationList.querySelector("[data-clear-annotation-code]").addEventListener("click", () => {
+              selectedAnnotationCodeId = "";
+              renderAnnotations();
+            });
+          }
           return;
         }
-        for (const doc of state.annotations) {
+        for (const doc of docs) {
           const div = document.createElement("div");
           div.className = "item";
           const quotes = doc.quotes
@@ -804,6 +904,15 @@
           `;
           els.annotationList.appendChild(div);
         }
+      }
+
+      function annotationsForCode(code) {
+        return state.annotations
+          .map((doc) => ({
+            ...doc,
+            quotes: (doc.quotes || []).filter((quote) => quoteMatchesCode(quote, code))
+          }))
+          .filter((doc) => doc.quotes.length);
       }
 
       function renderHistory() {
@@ -844,6 +953,7 @@
       }
 
       function readPreferences() {
+        if (!hasDom) return state.preferences;
         state.preferences.apiKey = els.apiKey.value.trim();
         state.preferences.model = els.modelSelect.value || els.modelSelect.options[0]?.value || state.preferences.model;
         state.preferences.temperature = Number(els.temperature.value || 0.2);
@@ -857,6 +967,7 @@
         state.preferences.refinePrompt = els.refinePrompt.value.trim();
         state.preferences.mergePrompt = els.mergePrompt.value.trim();
         state.preferences.annotationPrompt = els.annotationPrompt.value.trim();
+        return state.preferences;
       }
 
       function createSnapshot(label) {
@@ -1469,7 +1580,7 @@
       }
 
       async function callOpenAI(input, schema, signal) {
-        readPreferences();
+        if (hasDom) readPreferences();
         if (!state.preferences.apiKey) throw new Error("Add an OpenAI API key in Preferences.");
         const capabilities = modelCapabilities(state.preferences.model);
         const body = {
@@ -1555,12 +1666,7 @@
         const signal = activeRun.controller.signal;
         try {
           createSnapshot("Before processing queue");
-          for (let index = 0; index < docs.length; index += 1) {
-            ensureProcessingActive(signal);
-            state.selectedDocId = docs[index].id;
-            await processDoc(docs[index], signal, index, docs.length);
-            render();
-          }
+          await processQualaQueue({ signal, docs, afterEach: render });
           createSnapshot("After processing queue");
           setProgress(100);
           setStatus("Queue processed.");
@@ -1570,6 +1676,61 @@
           activeRun = null;
           setProcessing(false);
         }
+      }
+
+      async function processQualaQueue(options = {}) {
+        const docs = options.docs || state.docs.filter((doc) => doc.status !== "coded");
+        for (let index = 0; index < docs.length; index += 1) {
+          ensureProcessingActive(options.signal || { aborted: false });
+          state.selectedDocId = docs[index].id;
+          await processDoc(docs[index], options.signal || { aborted: false }, index, docs.length);
+          if (options.afterEach) options.afterEach({ doc: docs[index], index, total: docs.length });
+        }
+        return { processed: docs.length };
+      }
+
+      async function runQualaBackend(payload, options = {}) {
+        const previousState = state;
+        const apiState = projectStateFromApiPayload(payload || {}, options);
+        state = apiState;
+        try {
+          await processQualaQueue({ signal: options.signal });
+          return exportPayload(options.exportedAt || new Date().toISOString());
+        } finally {
+          state = previousState;
+        }
+      }
+
+      function projectStateFromApiPayload(payload, options = {}) {
+        const currentPreferences = clone(defaults.preferences);
+        const project = payload.project || payload;
+        const projectPreferences = project.preferences || payload.preferences || {};
+        const preferences = {
+          ...currentPreferences,
+          ...projectPreferences,
+          apiKey: options.apiKey || payload.apiKey || projectPreferences.apiKey || environmentApiKey() || ""
+        };
+        migrateLegacyDefaultPrompts(preferences, projectPreferences);
+        const loaded = {
+          ...clone(defaults),
+          preferences,
+          docs: normalizeLoadedDocs(project.docs || payload.docs || payload.data || []),
+          selectedDocId: project.selectedDocId || payload.selectedDocId || null,
+          codebook: (payload.codebook || project.codebook || []).map((code, index) => normalizeCode(code, index)),
+          annotations: normalizeLoadedAnnotations(payload.data || project.annotations || payload.annotations || []),
+          history: project.history || payload.history || [],
+          auditLog: payload.audit_log || project.auditLog || payload.auditLog || [],
+          autosavedAt: payload.exported_at || project.autosavedAt || ""
+        };
+        if (!loaded.docs.some((doc) => doc.id === loaded.selectedDocId)) {
+          loaded.selectedDocId = loaded.docs[0]?.id || null;
+        }
+        return loaded;
+      }
+
+      function environmentApiKey() {
+        if (typeof process === "undefined" || !process.env) return "";
+        return process.env.OPENAI_API_KEY || "";
       }
 
       async function processDoc(doc, signal, index, total) {
@@ -2103,15 +2264,16 @@
         setStatus("Models loaded.");
       }
 
-      function exportPayload(exportedAt = new Date().toISOString()) {
+      function exportPayload(exportedAt = new Date().toISOString(), options = {}) {
         const { apiKey, ...safePreferences } = state.preferences;
+        const history = Object.prototype.hasOwnProperty.call(options, "history") ? options.history : state.history;
         return {
           tool: "Quala",
           exported_at: exportedAt,
           project: {
             docs: state.docs,
             selectedDocId: state.selectedDocId,
-            history: state.history,
+            history,
             preferences: safePreferences,
             autosavedAt: state.autosavedAt || exportedAt
           },
@@ -2308,6 +2470,21 @@
         els.codeModal.classList.add("open");
       }
 
+      function showCodeAnnotations(id) {
+        const code = state.codebook.find((item) => item.id === id);
+        if (!code) return;
+        selectedAnnotationCodeId = id;
+        renderAnnotations();
+        showView("annotations");
+        setStatus(`Showing examples for ${code.name}.`);
+      }
+
+      function showView(name) {
+        document.querySelectorAll(".navBtn").forEach((btn) => btn.classList.toggle("active", btn.dataset.view === name));
+        document.querySelectorAll(".view").forEach((view) => view.classList.add("hidden"));
+        $(`${name}View`).classList.remove("hidden");
+      }
+
       function escapeHtml(value) {
         return String(value)
           .replaceAll("&", "&amp;")
@@ -2317,12 +2494,30 @@
           .replaceAll("'", "&#039;");
       }
 
+      const QualaBackend = {
+        run: runQualaBackend,
+        processProject: runQualaBackend,
+        processQueue: processQualaQueue,
+        projectStateFromPayload: projectStateFromApiPayload,
+        evidenceAuditor,
+        modelCapabilities
+      };
+
+      if (typeof globalThis !== "undefined") {
+        globalThis.QualaBackend = QualaBackend;
+      }
+      if (typeof module !== "undefined" && module.exports) {
+        module.exports = QualaBackend;
+      }
+
+      if (hasDom) {
       document.querySelectorAll(".navBtn").forEach((btn) => {
         btn.addEventListener("click", () => {
-          document.querySelectorAll(".navBtn").forEach((b) => b.classList.remove("active"));
-          btn.classList.add("active");
-          document.querySelectorAll(".view").forEach((view) => view.classList.add("hidden"));
-          $(`${btn.dataset.view}View`).classList.remove("hidden");
+          if (btn.dataset.view === "annotations") {
+            selectedAnnotationCodeId = "";
+            renderAnnotations();
+          }
+          showView(btn.dataset.view);
         });
       });
 
@@ -2517,4 +2712,5 @@
       );
 
       render();
+      }
     
