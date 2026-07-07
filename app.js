@@ -180,7 +180,10 @@
         ]
       };
 
-      const hasDom = typeof document !== "undefined" && typeof document.getElementById === "function";
+      const hasDom =
+        typeof document !== "undefined" &&
+        typeof document.getElementById === "function" &&
+        document.documentElement?.dataset?.qualaLegacyGui === "true";
       const $ = (id) => (hasDom ? document.getElementById(id) : null);
       const clone = (obj) => JSON.parse(JSON.stringify(obj));
       const uid = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
@@ -1206,29 +1209,53 @@
         const dataOffset = entry.localOffset + 30 + nameLength + extraLength;
         const compressed = bytes.slice(dataOffset, dataOffset + entry.compressedSize);
         if (entry.compression === 0) return compressed;
-        if (entry.compression !== 8 || typeof DecompressionStream === "undefined") {
-          throw new Error("This browser cannot decompress this DOCX file.");
+        if (entry.compression !== 8) {
+          throw new Error("This DOCX file uses an unsupported ZIP compression method.");
         }
+        if (typeof require === "function") {
+          const zlib = require("zlib");
+          return new Uint8Array(zlib.inflateRawSync(Buffer.from(compressed)));
+        }
+        if (typeof DecompressionStream === "undefined") throw new Error("This browser cannot decompress this DOCX file.");
         const stream = new Blob([compressed]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
         return new Uint8Array(await new Response(stream).arrayBuffer());
       }
 
-      async function readDocx(file) {
-        const bytes = new Uint8Array(await file.arrayBuffer());
+      function xmlEntityDecode(value) {
+        return String(value)
+          .replaceAll("&lt;", "<")
+          .replaceAll("&gt;", ">")
+          .replaceAll("&quot;", '"')
+          .replaceAll("&apos;", "'")
+          .replaceAll("&amp;", "&");
+      }
+
+      function textFromDocumentXml(xml) {
+        const paragraphs = String(xml).match(/<w:p[\s>][\s\S]*?<\/w:p>/g) || [];
+        const blocks = paragraphs.length ? paragraphs : [String(xml)];
+        return blocks
+          .map((paragraph) => {
+            const parts = [];
+            const tokenPattern = /<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>|<w:tab\b[^>]*\/>|<w:(?:br|cr)\b[^>]*\/>/g;
+            let match;
+            while ((match = tokenPattern.exec(paragraph))) {
+              if (match[1] !== undefined) parts.push(xmlEntityDecode(match[1]));
+              else if (match[0].startsWith("<w:tab")) parts.push("\t");
+              else parts.push("\n");
+            }
+            return parts.join("");
+          })
+          .join("\n");
+      }
+
+      async function readDocxBytes(bytes) {
         const xmlBytes = await readZipEntry(bytes, "word/document.xml");
         const xml = new TextDecoder().decode(xmlBytes);
-        const doc = new DOMParser().parseFromString(xml, "application/xml");
-        if (doc.querySelector("parsererror")) throw new Error("The DOCX document XML is invalid.");
+        return textFromDocumentXml(xml);
+      }
 
-        function nodeText(node) {
-          if (node.nodeType === 3) return node.parentNode.localName === "t" ? node.nodeValue : "";
-          if (node.localName === "tab") return "\t";
-          if (node.localName === "br" || node.localName === "cr") return "\n";
-          return Array.from(node.childNodes).map(nodeText).join("");
-        }
-
-        const paragraphs = Array.from(doc.getElementsByTagNameNS("*", "p"));
-        return paragraphs.map(nodeText).join("\n");
+      async function readDocx(file) {
+        return readDocxBytes(new Uint8Array(await file.arrayBuffer()));
       }
 
       async function handleFiles(files) {
@@ -1676,9 +1703,13 @@
         const timeoutController = new AbortController();
         const timeoutId = setTimeout(() => timeoutController.abort(), timeoutMs);
         const abortRequest = () => timeoutController.abort();
-        if (signal) {
-          if (signal.aborted) timeoutController.abort();
-          else signal.addEventListener("abort", abortRequest, { once: true });
+        const canListenForAbort =
+          signal &&
+          typeof signal.addEventListener === "function" &&
+          typeof signal.removeEventListener === "function";
+        if (signal?.aborted) timeoutController.abort();
+        else if (canListenForAbort) {
+          signal.addEventListener("abort", abortRequest, { once: true });
         }
         try {
           return await fetchImpl(url, { ...options, signal: timeoutController.signal });
@@ -1689,7 +1720,7 @@
           throw error;
         } finally {
           clearTimeout(timeoutId);
-          if (signal) signal.removeEventListener("abort", abortRequest);
+          if (canListenForAbort) signal.removeEventListener("abort", abortRequest);
         }
       }
 
@@ -1734,10 +1765,22 @@
 
       async function processQualaQueue(options = {}) {
         const docs = options.docs || state.docs.filter((doc) => doc.status !== "coded");
+        const signal = options.signal || null;
+        if (options.onProgress) {
+          options.onProgress({ processed: 0, total: docs.length, percent: docs.length ? 0 : 100, doc: null });
+        }
         for (let index = 0; index < docs.length; index += 1) {
-          ensureProcessingActive(options.signal || { aborted: false });
+          ensureProcessingActive(signal);
           state.selectedDocId = docs[index].id;
-          await processDoc(docs[index], options.signal || { aborted: false }, index, docs.length);
+          await processDoc(docs[index], signal, index, docs.length);
+          if (options.onProgress) {
+            options.onProgress({
+              processed: index + 1,
+              total: docs.length,
+              percent: Math.round(((index + 1) / Math.max(1, docs.length)) * 100),
+              doc: docs[index]
+            });
+          }
           if (options.afterEach) options.afterEach({ doc: docs[index], index, total: docs.length });
         }
         return { processed: docs.length };
@@ -1751,7 +1794,7 @@
         const apiState = projectStateFromApiPayload(payload || {}, options);
         state = apiState;
         try {
-          await processQualaQueue({ signal: options.signal });
+          await processQualaQueue({ signal: options.signal, onProgress: options.onProgress });
           return exportPayload(options.exportedAt || new Date().toISOString());
         } finally {
           state = previousState;
@@ -1908,7 +1951,7 @@
       }
 
       function ensureProcessingActive(signal) {
-        if (signal.aborted) throw new Error("Processing stopped.");
+        if (signal?.aborted) throw new Error("Processing stopped.");
       }
 
       function scoutStats(output) {
@@ -2554,6 +2597,7 @@
         processProject: runQualaBackend,
         processQueue: processQualaQueue,
         projectStateFromPayload: projectStateFromApiPayload,
+        readDocxBytes,
         evidenceAuditor,
         modelCapabilities
       };

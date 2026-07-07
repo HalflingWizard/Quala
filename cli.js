@@ -8,8 +8,9 @@ function usage() {
     "Usage:",
     "  node cli.js run input-project.json output-project.json",
     "  node cli.js init output-project.json",
-    "  node cli.js add-text input-project.json output-project.json --id D1 --source notes.txt --text-file notes.txt",
+    "  node cli.js add-text input-project.json output-project.json --id D1 --source notes.docx --text-file notes.docx",
     "  node cli.js add-text input-project.json output-project.json --id D1 --source pasted --text \"Datapoint text\"",
+    "  node cli.js add-files input-project.json output-project.json notes-1.txt notes-2.docx",
     "",
     "The old form still works:",
     "  node cli.js input-project.json output-project.json",
@@ -24,6 +25,27 @@ function readJson(path) {
 
 function writeJson(path, payload) {
   fs.writeFileSync(path, `${JSON.stringify(payload, null, 2)}\n`);
+}
+
+function loadEnvFile(path = ".env") {
+  if (!fs.existsSync(path)) return;
+  const lines = fs.readFileSync(path, "utf8").split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const equalsIndex = trimmed.indexOf("=");
+    if (equalsIndex === -1) continue;
+    const key = trimmed.slice(0, equalsIndex).trim();
+    let value = trimmed.slice(equalsIndex + 1).trim();
+    if (!key || process.env[key]) continue;
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    process.env[key] = value;
+  }
 }
 
 function blankProject(exportedAt = new Date().toISOString()) {
@@ -67,13 +89,29 @@ function ensureProjectShape(payload) {
   };
 }
 
-function addTextCommand(args) {
+async function readInputText(filePath, inlineText) {
+  if (!filePath) return inlineText;
+  if (filePath.toLowerCase().endsWith(".docx")) {
+    return QualaBackend.readDocxBytes(new Uint8Array(fs.readFileSync(filePath)));
+  }
+  return fs.readFileSync(filePath, "utf8");
+}
+
+function nextDocId(docs) {
+  const max = docs.reduce((best, doc) => {
+    const match = String(doc.id || "").match(/^D(\d+)$/i);
+    return match ? Math.max(best, Number(match[1])) : best;
+  }, 0);
+  return `D${max + 1}`;
+}
+
+async function addTextCommand(args) {
   const [inputPath, outputPath] = args;
   const id = optionValue(args, "--id");
   const source = optionValue(args, "--source");
   const textFile = optionValue(args, "--text-file");
   const inlineText = optionValue(args, "--text");
-  const text = textFile ? fs.readFileSync(textFile, "utf8") : inlineText;
+  const text = await readInputText(textFile, inlineText);
 
   if (!inputPath || !outputPath || !id || !text) {
     throw new Error("add-text needs input, output, --id, and either --text-file or --text.");
@@ -94,7 +132,39 @@ function addTextCommand(args) {
   writeJson(outputPath, payload);
 }
 
+async function addFilesCommand(args) {
+  const [inputPath, outputPath, ...filePaths] = args;
+  if (!inputPath || !outputPath || !filePaths.length) {
+    throw new Error("add-files needs input, output, and at least one TXT or DOCX file.");
+  }
+
+  const payload = ensureProjectShape(readJson(inputPath));
+  const docs = [...payload.project.docs];
+  for (const filePath of filePaths) {
+    const name = filePath.toLowerCase();
+    if (!name.endsWith(".txt") && !name.endsWith(".docx")) {
+      throw new Error(`${filePath} is not a TXT or DOCX file.`);
+    }
+    const text = await readInputText(filePath, "");
+    if (!String(text || "").trim()) throw new Error(`${filePath} does not contain readable text.`);
+    const id = nextDocId(docs);
+    docs.push({
+      id,
+      source: filePath,
+      text,
+      status: "queued"
+    });
+  }
+
+  payload.project.docs = docs;
+  if (!payload.project.selectedDocId) payload.project.selectedDocId = docs[0]?.id || null;
+  payload.exported_at = new Date().toISOString();
+  payload.project.autosavedAt = payload.exported_at;
+  writeJson(outputPath, payload);
+}
+
 async function main() {
+  loadEnvFile();
   const [, , commandOrInput, ...args] = process.argv;
   if (!commandOrInput || commandOrInput === "--help" || commandOrInput === "-h") {
     console.error(usage());
@@ -109,7 +179,12 @@ async function main() {
   }
 
   if (commandOrInput === "add-text") {
-    addTextCommand(args);
+    await addTextCommand(args);
+    return;
+  }
+
+  if (commandOrInput === "add-files") {
+    await addFilesCommand(args);
     return;
   }
 

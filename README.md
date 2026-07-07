@@ -1,13 +1,15 @@
 # Quala
 
-Quala is a command line qualitative analysis tool for interviews, social media posts, field notes, and other text data.
+Quala is a qualitative analysis tool for interviews, social media posts, field notes, and other text data.
 
-It helps a researcher process a queue of datapoints, build a codebook, annotate exact quotes, and export a reloadable project JSON file.
+It has a CLI-first backend and a React web GUI. Both use the same reloadable project JSON file.
 
 ## What It Does
 
 - Create a full project JSON file from the CLI.
-- Add datapoints from text files or inline text.
+- Add datapoints from TXT files, DOCX files, or inline text.
+- Add multiple TXT and DOCX files to the process queue.
+- Add datapoints, load projects, process the queue, and download JSON from the React web GUI.
 - Process all queued datapoints with the OpenAI API.
 - Run a document scout that finds possible new concepts without seeing the codebook.
 - Run a novelty detector and merge reviewer before any codebook change.
@@ -19,16 +21,24 @@ It helps a researcher process a queue of datapoints, build a codebook, annotate 
 
 ## Run
 
+### CLI
+
 Create a project file.
 
 ```bash
 node cli.js init project.json
 ```
 
-Add a datapoint from a TXT file.
+Add a datapoint from a TXT or DOCX file.
 
 ```bash
-node cli.js add-text project.json project.json --id D1 --source interview-1.txt --text-file interview-1.txt
+node cli.js add-text project.json project.json --id D1 --source interview-1.docx --text-file interview-1.docx
+```
+
+Add several files to the queue.
+
+```bash
+node cli.js add-files project.json project.json interview-1.txt interview-2.docx
 ```
 
 Add a datapoint from inline text.
@@ -43,11 +53,47 @@ Process queued datapoints.
 OPENAI_API_KEY=your-key node cli.js run project.json coded-project.json
 ```
 
+You can also put the key in `.env`.
+
+```bash
+OPENAI_API_KEY=your-key
+```
+
+Then run the CLI without adding the key to the command.
+
+```bash
+node cli.js run project.json coded-project.json
+```
+
 The older batch form still works.
 
 ```bash
 OPENAI_API_KEY=your-key node cli.js project.json coded-project.json
 ```
+
+### React Web GUI
+
+Install dependencies once.
+
+```bash
+npm install
+```
+
+Start the React dev server.
+
+```bash
+npm start
+```
+
+The React dev server reads `OPENAI_API_KEY` from `.env` when it starts. Restart `npm start` after editing `.env`.
+
+The GUI has separate pages for Project, Queue, Results, Audit, and Settings.
+
+- Project loads, creates, and downloads project JSON files.
+- Queue adds pasted text or multiple TXT and DOCX files, previews datapoints, and processes the queue.
+- Results shows the codebook and annotations.
+- Audit shows processing logs.
+- Settings stores API and model preferences for the session.
 
 ## Test
 
@@ -56,6 +102,13 @@ Run the startup smoke test.
 ```bash
 node smoke-test.js
 ```
+
+For web GUI changes, also run `npm start` and check these paths.
+
+1. Create a new project.
+2. Add a datapoint by paste.
+3. Add multiple datapoints from TXT or DOCX files.
+4. Download JSON.
 
 For API related changes, also test one short datapoint when an API key is available.
 
@@ -113,7 +166,7 @@ The JSON output is the complete project backup. It can be loaded into Quala late
 
 ## Privacy
 
-The CLI reads and writes local JSON files.
+The CLI reads and writes local JSON files. The web GUI keeps the project in browser memory until you download it.
 
 OpenAI requests are sent from the local command line process to the OpenAI API. Do not process sensitive data unless the study protocol allows that use.
 
