@@ -1,41 +1,53 @@
 # Quala
 
-Quala is a browser based qualitative analysis tool for interviews, social media posts, field notes, and other text data.
+Quala is a command line qualitative analysis tool for interviews, social media posts, field notes, and other text data.
 
-It helps a researcher build a codebook over a queue of datapoints, annotate exact quotes, review codebook changes, and keep a history of every step.
+It helps a researcher process a queue of datapoints, build a codebook, annotate exact quotes, and export a reloadable project JSON file.
 
 ## What It Does
 
-- Add datapoints by pasting text or opening local TXT and DOCX files.
-- Store an OpenAI API key in the browser and load available models.
-- Edit the study lens, scout prompt, novelty prompt, merge reviewer prompt, and applier prompt.
+- Create a full project JSON file from the CLI.
+- Add datapoints from text files or inline text.
+- Process all queued datapoints with the OpenAI API.
 - Run a document scout that finds possible new concepts without seeing the codebook.
-- Process all queued datapoints with one queue run.
 - Run a novelty detector and merge reviewer before any codebook change.
 - Add verified new codes directly to the active codebook.
 - Run a codebook applier after codebook updates so new codes can apply to the same document.
 - Check every model quote with a non LLM verifier using exact substring matching before saving annotations.
-- Mark codes as active, dormant, merged, or rejected. Deleted codes are marked rejected.
-- Sort the codebook by coverage and show percentage plus an `x/n` ratio tag that lists related datapoints on hover.
-- Choose the richest verified example quote for each code and show its datapoint ID.
-- Ask agents for context-rich quotes and include the interviewer question when a response depends on it.
-- Annotate exact verbatim quotes with code names while preserving stable code IDs.
-- Save snapshots before and after processing so a researcher can undo mistakes.
-- Save an audit log for each document with actor badges, filter, time sort, stage summaries, and expandable full prompts and outputs.
-- Auto-save a reloadable full-project JSON structure in browser storage and show the latest auto-save time.
-- Export all data, the codebook, annotations, or troubleshooting logs as JSON, XML, or TXT.
-- Include related datapoint IDs and coverage values in codebook exports.
-- Keep full-project JSON compatible with project loading and `arazilab/analysis_tools`.
-- Explain the agent workflow in an in-app guide with a visual process graph.
-- Show hover explanations for code status, document status, coverage, certainty, count, and audit tags.
+- Mark codes as active, dormant, merged, or rejected.
+- Keep full project JSON compatible with project loading and `arazilab/analysis_tools`.
 
 ## Run
 
-Open `index.html` in a browser.
+Create a project file.
 
-No build step is needed.
+```bash
+node cli.js init project.json
+```
 
-The app logic is in `app.js`.
+Add a datapoint from a TXT file.
+
+```bash
+node cli.js add-text project.json project.json --id D1 --source interview-1.txt --text-file interview-1.txt
+```
+
+Add a datapoint from inline text.
+
+```bash
+node cli.js add-text project.json project.json --id D2 --source pasted --text "Participant text goes here."
+```
+
+Process queued datapoints.
+
+```bash
+OPENAI_API_KEY=your-key node cli.js run project.json coded-project.json
+```
+
+The older batch form still works.
+
+```bash
+OPENAI_API_KEY=your-key node cli.js project.json coded-project.json
+```
 
 ## Test
 
@@ -45,24 +57,11 @@ Run the startup smoke test.
 node smoke-test.js
 ```
 
-## Workflow
-
-1. Open `index.html`.
-2. Go to Preferences.
-3. Add an OpenAI API key.
-4. Load models or use the default model value.
-5. Edit the study lens, scout prompt, novelty prompt, merge reviewer prompt, and applier prompt if needed.
-6. Go to Workspace.
-7. Add datapoints by paste or open TXT and DOCX files.
-8. Process the queue.
-9. Review the codebook and edit or delete codes when needed.
-10. Review annotations and the audit log. Filter the audit by document when you need one document's processing history.
-11. Edit or restore from History when needed.
-12. Export all data, the codebook, annotations, or audit logs in the format you need.
+For API related changes, also test one short datapoint when an API key is available.
 
 ## Export Shape
 
-The All data JSON export is the complete project backup. It can be loaded into Quala later and works with tools that expect datapoints with an `annotation` field. Browser auto-save uses this same JSON structure.
+The JSON output is the complete project backup. It can be loaded into Quala later and works with tools that expect datapoints with an `annotation` field.
 
 ```json
 {
@@ -100,7 +99,7 @@ The All data JSON export is the complete project backup. It can be loaded into Q
       "annotation": ["Trust Boundaries"],
       "quotes": [
         {
-          "quote": "Exact verbatim quote from the input.",
+          "quote": "Exact quote from the input.",
           "code_ids": ["C001"],
           "annotations": ["Trust Boundaries"],
           "certainty": 5,
@@ -114,9 +113,9 @@ The All data JSON export is the complete project backup. It can be loaded into Q
 
 ## Privacy
 
-The tool runs in the browser and saves data in `localStorage`.
+The CLI reads and writes local JSON files.
 
-OpenAI requests are sent directly from the browser to the OpenAI API. Do not paste sensitive data unless the study protocol allows that use.
+OpenAI requests are sent from the local command line process to the OpenAI API. Do not process sensitive data unless the study protocol allows that use.
 
 ## Notes
 

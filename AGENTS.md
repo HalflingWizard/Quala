@@ -2,17 +2,18 @@
 
 ## Repo Goal
 
-Quala is a single page HTML tool for human in the loop qualitative coding.
+Quala is a command line tool for human in the loop qualitative coding.
 
-Keep the tool simple. It should work by opening `index.html` in a browser.
+Keep the tool simple. It should run with `node cli.js` and read and write local project JSON files.
 
-Keep application logic in `app.js`.
+Keep application logic in `app.js`. Keep command line behavior in `cli.js`.
 
 ## Maintenance Rules
 
 - Keep changes surgical and easy to review.
 - Do not add a build system unless the user asks for one.
-- Keep state local to the browser unless the user asks for a backend.
+- Keep state in local project files unless the user asks for a backend.
+- For new user requested features, add or prove the behavior in the CLI first so the core logic can support it. Add another front end only if the user asks for one.
 - Keep exports compatible with `arazilab/analysis_tools` by preserving a datapoint level `annotation` field.
 - Preserve exact quote verification. The app must not save model quotes that are not found in the source datapoint.
 - Keep codebook history and restore behavior working after changes.
@@ -21,23 +22,22 @@ Keep application logic in `app.js`.
 
 ## Code Style
 
-- Prefer plain JavaScript, HTML, and CSS.
+- Prefer plain JavaScript.
 - Use small functions with direct names.
 - Avoid broad rewrites.
 - Do not introduce dependencies without a clear need.
-- Keep UI styling close to the existing `analysis_tools` family, light panels, blue accent, compact tables, and simple controls.
 - When the user says to fix an issue with a number, include that issue number in the commit message so GitHub links it.
 
 ## Manual Checks
 
-Before committing UI changes, open `index.html` and check these paths.
+Before committing CLI changes, check these paths.
 
-1. Add a datapoint by paste.
-2. Add a datapoint from a TXT file.
-3. Edit and save Preferences.
-4. Add a manual code.
-5. Create and restore a History snapshot.
-6. Export JSON.
+1. Create a project with `node cli.js init`.
+2. Add a datapoint with `node cli.js add-text --text`.
+3. Add a datapoint with `node cli.js add-text --text-file`.
+4. Run `node cli.js run` on a short project when an API key is available.
+5. Confirm the output JSON preserves datapoint level `annotation`.
+6. Confirm exact quote verification rejects quotes not found in the source datapoint.
 
 Also run this startup check.
 
