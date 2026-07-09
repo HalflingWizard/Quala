@@ -52,6 +52,18 @@ function normalizeProject(payload) {
   };
 }
 
+function uniqueList(values) {
+  return Array.from(new Set((values || []).filter(Boolean)));
+}
+
+function nextCodeIdFromCodebook(codebook) {
+  const max = (codebook || []).reduce((best, code) => {
+    const match = String(code.code_id || "").match(/^C(\d+)$/i);
+    return match ? Math.max(best, Number(match[1])) : best;
+  }, 0);
+  return `C${String(max + 1).padStart(3, "0")}`;
+}
+
 function downloadJson(name, payload) {
   const blob = new Blob([`${JSON.stringify(payload, null, 2)}\n`], { type: "application/json;charset=utf-8" });
   const url = URL.createObjectURL(blob);
@@ -139,6 +151,7 @@ function Navigation({ activeView, setActiveView }) {
     ["project", "Project"],
     ["queue", "Queue"],
     ["results", "Results"],
+    ["codeMerger", "Code Merger"],
     ["audit", "Agent Outputs"],
     ["settings", "Settings"]
   ];
@@ -430,6 +443,99 @@ function Codebook({ codebook, docs, annotations }) {
           </tbody>
         </table>
       </div>
+    </section>
+  );
+}
+
+function CodeMerger({ codebook, docs, annotations, onMerge }) {
+  const [selectedCodeIds, setSelectedCodeIds] = useState([]);
+  const [mergedName, setMergedName] = useState("");
+  const [mergedDefinition, setMergedDefinition] = useState("");
+
+  function toggleCode(codeId) {
+    setSelectedCodeIds((current) =>
+      current.includes(codeId) ? current.filter((item) => item !== codeId) : [...current, codeId]
+    );
+  }
+
+  function submitMerge(event) {
+    event.preventDefault();
+    if (onMerge(selectedCodeIds, mergedName, mergedDefinition)) {
+      setSelectedCodeIds([]);
+      setMergedName("");
+      setMergedDefinition("");
+    }
+  }
+
+  return (
+    <section className="panel">
+      <h2>Code Merger</h2>
+      <form className="mergeLayout" onSubmit={submitMerge}>
+        <div className="mergeCodeList">
+          {codebook.length ? (
+            codebook.map((code) => {
+              const codeId = code.code_id || code.name;
+              const relatedDatapoints = relatedDatapointsForCode(code, docs, annotations);
+              const canSelect = !["merged", "rejected"].includes(String(code.status || "").toLowerCase());
+              return (
+                <label key={codeId} className={canSelect ? "mergeCodeItem" : "mergeCodeItem disabled"}>
+                  <input
+                    className="checkboxInput"
+                    type="checkbox"
+                    checked={selectedCodeIds.includes(codeId)}
+                    disabled={!canSelect}
+                    onChange={() => toggleCode(codeId)}
+                  />
+                  <span>
+                    <strong>{code.name || codeId}</strong>
+                    <span className="muted">
+                      {code.code_id} - {code.status || "active"}
+                    </span>
+                    <span>{code.definition || "No definition yet."}</span>
+                    {relatedDatapoints.length ? (
+                      <span className="tagList">
+                        {relatedDatapoints.map((docId) => (
+                          <span key={docId} className="tag">{docId}</span>
+                        ))}
+                      </span>
+                    ) : (
+                      <span className="empty">No datapoints yet.</span>
+                    )}
+                  </span>
+                </label>
+              );
+            })
+          ) : (
+            <p className="empty">No codes have been found yet.</p>
+          )}
+        </div>
+
+        <div className="mergePanel">
+          <label>
+            New merged code name
+            <input
+              value={mergedName}
+              onChange={(event) => setMergedName(event.target.value)}
+              placeholder="Enter your merged code name"
+            />
+          </label>
+          <label>
+            New merged definition
+            <textarea
+              rows={6}
+              value={mergedDefinition}
+              onChange={(event) => setMergedDefinition(event.target.value)}
+              placeholder="Describe what these codes mean together"
+            />
+          </label>
+          <div className="buttonRow">
+            <button type="submit" disabled={selectedCodeIds.length < 2 || !mergedName.trim()}>
+              Merge selected codes
+            </button>
+            <span className="muted">{selectedCodeIds.length} selected</span>
+          </div>
+        </div>
+      </form>
     </section>
   );
 }
@@ -755,6 +861,143 @@ export default function App() {
     }
   }
 
+  function mergeCodes(selectedCodeIds, mergedName, mergedDefinition) {
+    const selectedSet = new Set(selectedCodeIds);
+    const cleanName = mergedName.trim();
+    if (selectedSet.size < 2) {
+      setStatus("Select at least two codes to merge.");
+      return false;
+    }
+    if (!cleanName) {
+      setStatus("Add a name for the merged code.");
+      return false;
+    }
+    const availableSelectedCodes = (project.codebook || []).filter((code) => selectedSet.has(code.code_id || code.name));
+    if (availableSelectedCodes.length < 2) {
+      setStatus("Select at least two available codes to merge.");
+      return false;
+    }
+
+    setProject((current) => {
+      const codebook = current.codebook || [];
+      const selectedCodes = codebook.filter((code) => selectedSet.has(code.code_id || code.name));
+
+      const newCodeId = nextCodeIdFromCodebook(codebook);
+      const selectedNames = new Set(selectedCodes.map((code) => code.name).filter(Boolean));
+      const selectedIds = new Set(selectedCodes.map((code) => code.code_id).filter(Boolean));
+      const exportedAt = nowIso();
+      const definition =
+        mergedDefinition.trim() ||
+        uniqueList(selectedCodes.map((code) => code.definition?.trim())).join(" ");
+      const exampleQuotes = uniqueList(
+        selectedCodes.flatMap((code) =>
+          (code.example_quotes || []).map((example) => JSON.stringify({
+            doc_id: example.doc_id || code.created_from_doc || "",
+            quote: example.quote || "",
+            verified: example.verified !== false
+          }))
+        )
+      ).map((item) => JSON.parse(item));
+      const mergedFrom = selectedCodes.map((code) => ({
+        code_id: code.code_id,
+        name: code.name
+      }));
+      const mergeReason = `Merged into ${newCodeId} ${cleanName}.`;
+
+      const nextCodebook = [
+        ...codebook.map((code) => {
+          if (!selectedSet.has(code.code_id || code.name)) return code;
+          return {
+            ...code,
+            status: "merged",
+            history: [
+              ...(code.history || []),
+              {
+                at: exportedAt,
+                event: "merged_by_user",
+                doc_id: "",
+                reason: mergeReason
+              }
+            ]
+          };
+        }),
+        {
+          code_id: newCodeId,
+          name: cleanName,
+          definition,
+          status: "active",
+          created_from_doc: selectedCodes.find((code) => code.created_from_doc)?.created_from_doc || "",
+          example_quotes: exampleQuotes,
+          history: [
+            {
+              at: exportedAt,
+              event: "manual_merge",
+              doc_id: "",
+              reason: "User merged related codes in the Code Merger page.",
+              merged_from: mergedFrom
+            }
+          ]
+        }
+      ];
+
+      const nextData = (current.data || []).map((doc) => {
+        const quoteHasSelectedCode = (quote) => {
+          const quoteCodeIds = quote.code_ids || [];
+          const quoteAnnotations = quote.annotations || [];
+          return (
+            quoteCodeIds.some((codeId) => selectedIds.has(codeId)) ||
+            quoteAnnotations.some((name) => selectedNames.has(name))
+          );
+        };
+        const hasSelectedQuote = (doc.quotes || []).some(quoteHasSelectedCode);
+        const nextQuotes = (doc.quotes || []).map((quote) => {
+          const quoteCodeIds = quote.code_ids || [];
+          const quoteAnnotations = quote.annotations || [];
+          if (!quoteHasSelectedCode(quote)) return quote;
+          return {
+            ...quote,
+            code_ids: uniqueList([...quoteCodeIds.filter((codeId) => !selectedIds.has(codeId)), newCodeId]),
+            annotations: uniqueList([...quoteAnnotations.filter((name) => !selectedNames.has(name)), cleanName])
+          };
+        });
+        const docAnnotation = doc.annotation || [];
+        const hasSelectedAnnotation = docAnnotation.some((name) => selectedNames.has(name));
+        return {
+          ...doc,
+          annotation: hasSelectedAnnotation || hasSelectedQuote
+            ? uniqueList([...docAnnotation.filter((name) => !selectedNames.has(name)), cleanName])
+            : docAnnotation,
+          quotes: nextQuotes
+        };
+      });
+
+      return {
+        ...current,
+        exported_at: exportedAt,
+        codebook: nextCodebook,
+        data: nextData,
+        project: {
+          ...current.project,
+          autosavedAt: exportedAt,
+          history: [
+            ...(current.project.history || []),
+            {
+              at: exportedAt,
+              event: "manual_merge",
+              code_id: newCodeId,
+              reason: mergeReason,
+              merged_from: mergedFrom
+            }
+          ]
+        }
+      };
+    });
+
+    setActiveView("results");
+    setStatus(`Merged ${selectedSet.size} codes into ${cleanName}.`);
+    return true;
+  }
+
   async function processProject() {
     if (!docs.length) {
       setStatus("Add at least one datapoint first.");
@@ -848,6 +1091,15 @@ export default function App() {
           <Codebook codebook={project.codebook || []} docs={docs} annotations={project.data || []} />
           <Annotations data={project.data || []} />
         </div>
+      )}
+
+      {activeView === "codeMerger" && (
+        <CodeMerger
+          codebook={project.codebook || []}
+          docs={docs}
+          annotations={project.data || []}
+          onMerge={mergeCodes}
+        />
       )}
 
       {activeView === "audit" && <AgentOutputs entries={liveAuditEntries.length ? liveAuditEntries : project.audit_log || []} />}

@@ -285,9 +285,13 @@ assertIncludes(webApp, "StageFindings", "Web GUI does not render readable agent 
 assertIncludes(webApp, "onAudit", "Web GUI does not receive live agent output events.");
 assertIncludes(webApp, "relatedDatapointsForCode", "Codebook does not calculate related datapoints.");
 assertIncludes(webApp, "<th>Datapoints</th>", "Codebook does not show a datapoints column.");
+assertIncludes(webApp, "Code Merger", "Web GUI does not expose a code merger page.");
+assertIncludes(webApp, "mergeCodes", "Web GUI cannot merge selected codes.");
+assertIncludes(webApp, "manual_merge", "Code merger does not record a manual merge history event.");
 assertIncludes(webApp, "downloadJson", "Web GUI cannot download project JSON.");
 assertIncludes(css, ".progressFill", "Web GUI progress bar styling is missing.");
 assertIncludes(css, ".appNav", "Web GUI navigation styling is missing.");
+assertIncludes(css, ".mergeCodeList", "Code merger list styling is missing.");
 assertIncludes(css, ".actorBadge", "Agent output actor badge styling is missing.");
 assertIncludes(css, ".findingCard", "Readable agent finding cards are missing styling.");
 assertIncludes(css, ".dropZone", "Web GUI drag and drop styling is missing.");

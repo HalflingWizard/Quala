@@ -543,6 +543,54 @@ blockquote footer {
   margin-top: 6px;
 }
 
+.mergeLayout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
+  gap: 16px;
+}
+
+.mergeCodeList {
+  display: grid;
+  gap: 10px;
+  max-height: 620px;
+  overflow: auto;
+}
+
+.mergeCodeItem {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fbfdff;
+  padding: 12px;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.mergeCodeItem > span {
+  display: grid;
+  gap: 6px;
+}
+
+.mergeCodeItem.disabled {
+  background: #f8fafc;
+  opacity: 0.7;
+}
+
+.checkboxInput {
+  width: 16px;
+  margin-top: 3px;
+}
+
+.mergePanel {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+}
+
 .agentOutputGrid h3 {
   margin-bottom: 6px;
   color: var(--muted);
@@ -590,6 +638,7 @@ blockquote footer {
   .statsGrid,
   .mainGrid,
   .formGrid,
+  .mergeLayout,
   .agentOutputGrid,
   .workspace {
     grid-template-columns: 1fr;
