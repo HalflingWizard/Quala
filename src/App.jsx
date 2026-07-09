@@ -454,6 +454,7 @@ function CodeRefinement({ codebook, docs, annotations, onQuickMerge, onRunRefine
   const [mergedDefinition, setMergedDefinition] = useState("");
   const [lens, setLens] = useState("");
   const [proposal, setProposal] = useState(null);
+  const [evidencePopup, setEvidencePopup] = useState(null);
 
   function toggleCode(codeId) {
     setProposal(null);
@@ -488,7 +489,23 @@ function CodeRefinement({ codebook, docs, annotations, onQuickMerge, onRunRefine
       setSelectedCodeIds([]);
       setLens("");
       setProposal(null);
+      setEvidencePopup(null);
     }
+  }
+
+  function openCodeDatapoint(code, docId) {
+    const sourceDoc = (docs || []).find((doc) => String(doc.id) === String(docId)) || {};
+    const annotationDoc = (annotations || []).find((doc) => String(doc.id) === String(docId)) || {};
+    const quotes = (annotationDoc.quotes || []).filter((quote) => quoteMatchesCode(quote, code));
+    setEvidencePopup({
+      assignment: {
+        doc_id: docId,
+        quote: quotes[0]?.quote || "",
+        reason: `Evidence for ${code.name || code.code_id || "this code"}.`
+      },
+      doc: { ...annotationDoc, ...sourceDoc, id: docId },
+      quotes
+    });
   }
 
   const activeCodes = codebook.filter((code) => !["merged", "rejected"].includes(String(code.status || "").toLowerCase()));
@@ -512,6 +529,7 @@ function CodeRefinement({ codebook, docs, annotations, onQuickMerge, onRunRefine
               setMode(id);
               setSelectedCodeIds([]);
               setProposal(null);
+              setEvidencePopup(null);
             }}
           >
             {label}
@@ -544,7 +562,17 @@ function CodeRefinement({ codebook, docs, annotations, onQuickMerge, onRunRefine
                     {relatedDatapoints.length ? (
                       <span className="tagList">
                         {relatedDatapoints.map((docId) => (
-                          <span key={docId} className="tag">{docId}</span>
+                          <button
+                            key={docId}
+                            type="button"
+                            className="tag tagButton"
+                            onClick={(event) => {
+                              event.preventDefault();
+                              openCodeDatapoint(code, docId);
+                            }}
+                          >
+                            {docId}
+                          </button>
                         ))}
                       </span>
                     ) : (
@@ -620,7 +648,12 @@ function CodeRefinement({ codebook, docs, annotations, onQuickMerge, onRunRefine
                     <h3>{code.name}</h3>
                     <p>{code.definition}</p>
                     <p className="muted">{(code.assignments || []).length} verified quote assignments</p>
-                    <QuoteList quotes={(code.assignments || []).map((item) => item.quote)} />
+                    <EvidenceQuoteList
+                      assignments={code.assignments || []}
+                      docs={docs}
+                      annotations={annotations}
+                      onOpen={setEvidencePopup}
+                    />
                   </article>
                 ))
               ) : (
@@ -633,7 +666,101 @@ function CodeRefinement({ codebook, docs, annotations, onQuickMerge, onRunRefine
           ) : null}
         </div>
       </div>
+      {evidencePopup ? (
+        <EvidencePopup evidence={evidencePopup} onClose={() => setEvidencePopup(null)} />
+      ) : null}
     </section>
+  );
+}
+
+function findEvidenceDoc(assignment, docs, annotations) {
+  const docId = String(assignment?.doc_id || "");
+  return (
+    (docs || []).find((doc) => String(doc.id) === docId) ||
+    (annotations || []).find((doc) => String(doc.id) === docId) ||
+    null
+  );
+}
+
+function EvidenceQuoteList({ assignments, docs, annotations, onOpen }) {
+  if (!assignments?.length) return <p className="empty">No quotes.</p>;
+  return (
+    <ul className="compactList evidenceQuoteList">
+      {assignments.map((assignment, index) => {
+        const doc = findEvidenceDoc(assignment, docs, annotations);
+        const docLabel = assignment.doc_id || doc?.id || "datapoint";
+        return (
+          <li key={`${assignment.doc_id || "doc"}-${assignment.quote}-${index}`}>
+            <button
+              type="button"
+              className="evidenceQuoteButton"
+              onClick={() => onOpen({ assignment, doc })}
+            >
+              <span className="tag">{docLabel}</span>
+              <q>{assignment.quote}</q>
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function EvidencePopup({ evidence, onClose }) {
+  const assignment = evidence.assignment || {};
+  const doc = evidence.doc || {};
+  const quotes = evidence.quotes?.length ? evidence.quotes : assignment.quote ? [assignment] : [];
+  const docText = String(doc.text || "");
+  const quote = String(assignment.quote || "");
+  const quoteStart = docText.indexOf(quote);
+  const hasQuoteInText = quote && quoteStart !== -1;
+  const beforeQuote = hasQuoteInText ? docText.slice(0, quoteStart) : docText;
+  const afterQuote = hasQuoteInText ? docText.slice(quoteStart + quote.length) : "";
+  const title = doc.id || assignment.doc_id || "Datapoint";
+
+  return (
+    <div className="modalOverlay" role="presentation" onMouseDown={onClose}>
+      <section
+        className="evidenceModal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="evidence-popup-title"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="modalHeader">
+          <div>
+            <h3 id="evidence-popup-title">{title}</h3>
+            <p className="muted">{doc.source || "Evidence datapoint"}</p>
+          </div>
+          <button type="button" className="secondary" onClick={onClose}>Close</button>
+        </div>
+        {quotes.length ? (
+          <div className="evidenceStack">
+            {quotes.map((item, index) => (
+              <blockquote key={`${item.quote}-${index}`}>
+                <p>{item.quote}</p>
+                <footer>
+                  {item.reason || item.rationale || (item.annotations || []).join(", ") || "Verified evidence quote"}
+                </footer>
+              </blockquote>
+            ))}
+          </div>
+        ) : (
+          <p className="empty">No quote was returned for this datapoint.</p>
+        )}
+        <div className="datapointText">
+          {docText ? (
+            <p>
+              {beforeQuote}
+              {hasQuoteInText ? <mark>{quote}</mark> : null}
+              {afterQuote}
+            </p>
+          ) : (
+            <p className="empty">This datapoint text is not loaded.</p>
+          )}
+        </div>
+      </section>
+    </div>
   );
 }
 

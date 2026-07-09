@@ -454,6 +454,18 @@ blockquote footer {
   font-weight: 700;
 }
 
+.tagButton {
+  width: auto;
+  min-height: 22px;
+  cursor: pointer;
+}
+
+.tagButton:hover {
+  border-color: var(--accent);
+  background: #dbeafe;
+  color: var(--accent-dark);
+}
+
 .annotationDoc,
 .auditItem {
   border-top: 1px solid var(--border);
@@ -541,6 +553,98 @@ blockquote footer {
 
 .compactList li + li {
   margin-top: 6px;
+}
+
+.evidenceQuoteList {
+  padding-left: 0;
+  list-style: none;
+}
+
+.evidenceQuoteButton {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  width: 100%;
+  min-height: 0;
+  gap: 8px;
+  align-items: start;
+  border-color: var(--border);
+  background: #ffffff;
+  color: var(--text);
+  padding: 9px;
+  text-align: left;
+  font-weight: 400;
+}
+
+.evidenceQuoteButton:hover {
+  border-color: var(--accent);
+  background: #eef4ff;
+  color: var(--text);
+}
+
+.evidenceQuoteButton q {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.evidenceStack {
+  display: grid;
+  gap: 10px;
+}
+
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  background: rgba(15, 23, 42, 0.42);
+  padding: 18px;
+}
+
+.evidenceModal {
+  display: grid;
+  width: min(780px, 100%);
+  max-height: min(760px, calc(100vh - 36px));
+  gap: 14px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 16px;
+  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.22);
+}
+
+.modalHeader {
+  display: flex;
+  gap: 12px;
+  align-items: start;
+  justify-content: space-between;
+}
+
+.modalHeader h3,
+.modalHeader p {
+  margin-bottom: 4px;
+}
+
+.datapointText {
+  max-height: 430px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fbfdff;
+  padding: 12px;
+}
+
+.datapointText p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.datapointText mark {
+  border-radius: 4px;
+  background: #fde68a;
+  padding: 1px 2px;
+  color: var(--text);
 }
 
 .mergeLayout {
@@ -644,6 +748,7 @@ blockquote footer {
   }
 
   .topBar,
+  .modalHeader,
   .controls {
     align-items: stretch;
     flex-direction: column;

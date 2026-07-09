@@ -351,6 +351,8 @@ assertIncludes(webApp, "Code Refinement", "Web GUI does not expose a code refine
 assertIncludes(webApp, "mergeCodes", "Web GUI cannot merge selected codes.");
 assertIncludes(webApp, "runAgentRefinement", "Web GUI cannot run agent-guided code refinement.");
 assertIncludes(webApp, "Agent-guided split", "Web GUI does not expose agent-guided split.");
+assertIncludes(webApp, "EvidencePopup", "Code refinement does not show evidence datapoint popups.");
+assertIncludes(webApp, "EvidenceQuoteList", "Code refinement does not render quote evidence buttons.");
 assertIncludes(webApp, "manual_merge", "Code merger does not record a manual merge history event.");
 assertIncludes(webApp, "manual_guided_split", "Code refinement does not record split history.");
 assertIncludes(webApp, "manual_guided_merge", "Code refinement does not record guided merge history.");
@@ -361,6 +363,7 @@ assertIncludes(css, ".progressFill", "Web GUI progress bar styling is missing.")
 assertIncludes(css, ".appNav", "Web GUI navigation styling is missing.");
 assertIncludes(css, ".mergeCodeList", "Code merger list styling is missing.");
 assertIncludes(css, ".proposalPanel", "Code refinement proposal styling is missing.");
+assertIncludes(css, ".evidenceModal", "Code refinement evidence popup styling is missing.");
 assertIncludes(css, ".actorBadge", "Agent output actor badge styling is missing.");
 assertIncludes(css, ".findingCard", "Readable agent finding cards are missing styling.");
 assertIncludes(css, ".dropZone", "Web GUI drag and drop styling is missing.");
