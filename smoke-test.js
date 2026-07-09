@@ -176,6 +176,7 @@ if (o3.temperature || o3.verbosity || !o3.reasoning) {
 
 async function checkBackendRunWithoutSignal() {
   const progressEvents = [];
+  const auditEvents = [];
   const payload = await QualaBackend.run(
     {
       apiKey: "test-key",
@@ -184,6 +185,9 @@ async function checkBackendRunWithoutSignal() {
       }
     },
     {
+      onAudit(event) {
+        auditEvents.push(event);
+      },
       onProgress(event) {
         progressEvents.push(event);
       },
@@ -245,6 +249,9 @@ async function checkBackendRunWithoutSignal() {
   ) {
     throw new Error("Backend did not report queue progress.");
   }
+  if (!auditEvents.some((event) => event.event_type === "document_scout" && event.output?.scout_codes?.length)) {
+    throw new Error("Backend did not stream agent output events.");
+  }
 }
 
 const html = fs.readFileSync(path.join(__dirname, "index.html"), "utf8");
@@ -272,11 +279,17 @@ assertIncludes(webApp, "Process Queue", "Web GUI does not show a process queue."
 assertIncludes(webApp, "role=\"progressbar\"", "Web GUI does not render a progress bar.");
 assertIncludes(webApp, "Main navigation", "Web GUI does not include page navigation.");
 assertIncludes(webApp, "activeView === \"settings\"", "Web GUI does not split settings into a separate page.");
+assertIncludes(webApp, "Agent Outputs", "Web GUI does not expose agent outputs.");
+assertIncludes(webApp, "agentOutputGrid", "Web GUI does not show agent input and output details.");
+assertIncludes(webApp, "StageFindings", "Web GUI does not render readable agent findings.");
+assertIncludes(webApp, "onAudit", "Web GUI does not receive live agent output events.");
 assertIncludes(webApp, "relatedDatapointsForCode", "Codebook does not calculate related datapoints.");
 assertIncludes(webApp, "<th>Datapoints</th>", "Codebook does not show a datapoints column.");
 assertIncludes(webApp, "downloadJson", "Web GUI cannot download project JSON.");
 assertIncludes(css, ".progressFill", "Web GUI progress bar styling is missing.");
 assertIncludes(css, ".appNav", "Web GUI navigation styling is missing.");
+assertIncludes(css, ".actorBadge", "Agent output actor badge styling is missing.");
+assertIncludes(css, ".findingCard", "Readable agent finding cards are missing styling.");
 assertIncludes(css, ".dropZone", "Web GUI drag and drop styling is missing.");
 assertIncludes(css, ".tagList", "Codebook datapoint tags are missing styling.");
 

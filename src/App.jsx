@@ -139,7 +139,7 @@ function Navigation({ activeView, setActiveView }) {
     ["project", "Project"],
     ["queue", "Queue"],
     ["results", "Results"],
-    ["audit", "Audit"],
+    ["audit", "Agent Outputs"],
     ["settings", "Settings"]
   ];
   return (
@@ -461,23 +461,206 @@ function Annotations({ data }) {
   );
 }
 
-function AuditLog({ entries }) {
+function auditActor(entry) {
+  if (entry.actor?.label) return entry.actor;
+  const actors = {
+    document_scout: { label: "Agent 1 Scout", type: "agent" },
+    codebook_applier: { label: "Agent 2 Applier", type: "agent" },
+    novelty_detector: { label: "Agent 3 Novelty", type: "agent" },
+    merge_reviewer: { label: "Agent 4 Merge", type: "agent" },
+    evidence_auditor: { label: "Exact-match Auditor", type: "auditor" },
+    quotes_verified: { label: "Exact-match Auditor", type: "auditor" },
+    quote_verification_failed: { label: "Exact-match Auditor", type: "auditor" },
+    codebook_update: { label: "Quala System", type: "system" },
+    document_processed: { label: "Quala System", type: "system" },
+    active_code_added: { label: "Quala System", type: "system" },
+    merge_applied: { label: "Quala System", type: "system" }
+  };
+  return actors[entry.event_type] || { label: "Quala System", type: "system" };
+}
+
+function QuoteList({ quotes }) {
+  if (!quotes?.length) return <p className="empty">No quotes.</p>;
+  return (
+    <ul className="compactList">
+      {quotes.map((quote, index) => (
+        <li key={`${quote}-${index}`}><q>{quote}</q></li>
+      ))}
+    </ul>
+  );
+}
+
+function StageFindings({ entry }) {
+  const output = entry.output || {};
+  if (entry.event_type === "document_scout") {
+    return (
+      <div className="stageFindings">
+        {(output.scout_codes || []).map((code, index) => (
+          <article key={`${code.temporary_code_name}-${index}`} className="findingCard">
+            <h3>{code.temporary_code_name || "Unnamed concept"}</h3>
+            <p>{code.definition || "No definition returned."}</p>
+            <p className="muted">Confidence {code.confidence || "not reported"}</p>
+            <QuoteList quotes={code.supporting_quotes || []} />
+          </article>
+        ))}
+      </div>
+    );
+  }
+  if (entry.event_type === "novelty_detector") {
+    return (
+      <div className="stageFindings">
+        {(output.novelty_decisions || []).map((item, index) => (
+          <article key={`${item.scout_code_name}-${index}`} className="findingCard">
+            <h3>{item.suggested_code?.name || item.scout_code_name || "Unnamed decision"}</h3>
+            <p><strong>Decision</strong> {item.decision || "not reported"}</p>
+            {item.matched_code_id ? <p><strong>Matched code</strong> {item.matched_code_id}</p> : null}
+            <p>{item.suggested_code?.definition || item.rationale || "No rationale returned."}</p>
+            <QuoteList quotes={item.evidence_quotes || []} />
+          </article>
+        ))}
+      </div>
+    );
+  }
+  if (entry.event_type === "merge_reviewer") {
+    return (
+      <div className="stageFindings">
+        {(output.merge_review || []).length ? (
+          output.merge_review.map((item, index) => (
+            <article key={`${item.candidate_code_name}-${index}`} className="findingCard">
+              <h3>{item.candidate_code_name || "Merge candidate"}</h3>
+              <p><strong>Recommendation</strong> {item.recommendation || "not reported"}</p>
+              <p><strong>Existing code</strong> {item.existing_code_id || "none"}</p>
+              <p>{item.argument_for_merge || item.argument_for_separation || "No merge argument returned."}</p>
+            </article>
+          ))
+        ) : (
+          <p className="empty">No merge review items.</p>
+        )}
+      </div>
+    );
+  }
+  if (entry.event_type === "codebook_update") {
+    return (
+      <div className="stageFindings">
+        <article className="findingCard">
+          <h3>Active codes added</h3>
+          {(output.active_codes_added || []).length ? (
+            <ul className="compactList">
+              {output.active_codes_added.map((code) => (
+                <li key={code.code_id}>{code.code_id} {code.name}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="empty">No active codes added.</p>
+          )}
+        </article>
+        <article className="findingCard">
+          <h3>Merged codes</h3>
+          {(output.merged_codes || []).length ? (
+            <ul className="compactList">
+              {output.merged_codes.map((code) => (
+                <li key={code.code_id}>{code.code_id} {code.name}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="empty">No codes merged.</p>
+          )}
+        </article>
+      </div>
+    );
+  }
+  if (entry.event_type === "codebook_applier") {
+    return (
+      <div className="stageFindings">
+        {(output.applied_codes || []).map((code) => (
+          <article key={code.code_id} className="findingCard">
+            <h3>{code.code_id}</h3>
+            {(code.instances || []).map((instance, index) => (
+              <blockquote key={`${code.code_id}-${index}`}>
+                <p>{instance.quote}</p>
+                <footer>{instance.reason || "No reason returned."}</footer>
+              </blockquote>
+            ))}
+          </article>
+        ))}
+        {(output.codes_with_no_instance || []).length ? (
+          <article className="findingCard">
+            <h3>Codes with no instance</h3>
+            <p>{output.codes_with_no_instance.join(", ")}</p>
+          </article>
+        ) : null}
+      </div>
+    );
+  }
+  if (entry.event_type === "evidence_auditor") {
+    return (
+      <div className="stageFindings">
+        <article className="findingCard">
+          <h3>Accepted exact quotes</h3>
+          <QuoteList quotes={(output.verified_quotes || []).map((item) => item.quote)} />
+        </article>
+        <article className="findingCard">
+          <h3>Rejected quotes</h3>
+          <QuoteList quotes={(output.failed_quotes || []).map((item) => item.quote)} />
+        </article>
+      </div>
+    );
+  }
+  return <p className="empty">No structured stage output for this event.</p>;
+}
+
+function AgentOutputs({ entries }) {
+  const [docFilter, setDocFilter] = useState("all");
+  const docIds = Array.from(new Set(entries.map((entry) => entry.doc_id).filter(Boolean))).sort((a, b) => a.localeCompare(b));
+  const filteredEntries = entries.filter((entry) => docFilter === "all" || entry.doc_id === docFilter);
+
   return (
     <section className="panel">
-      <h2>Audit Log</h2>
-      {entries.length ? (
-        entries.slice().reverse().map((entry, index) => (
-          <details key={`${entry.timestamp}-${index}`} className="auditItem">
-            <summary>
-              <strong>{entry.title || entry.event_type}</strong>
-              <span>{entry.doc_id || "Project"}</span>
-            </summary>
-            <p>{entry.summary || entry.reason || "No summary."}</p>
-            <pre>{JSON.stringify({ stats: entry.stats, input: entry.input, output: entry.output }, null, 2)}</pre>
-          </details>
-        ))
+      <div className="sectionTitle">
+        <h2>Agent Outputs</h2>
+        <label className="compactSelect">
+          Datapoint
+          <select value={docFilter} onChange={(event) => setDocFilter(event.target.value)}>
+            <option value="all">All</option>
+            {docIds.map((docId) => (
+              <option key={docId} value={docId}>{docId}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+      {filteredEntries.length ? (
+        filteredEntries.slice().reverse().map((entry, index) => {
+          const actor = auditActor(entry);
+          return (
+            <details key={`${entry.timestamp}-${index}`} className="auditItem">
+              <summary>
+                <span>
+                  <strong>{entry.title || entry.event_type}</strong>
+                  <em className={`actorBadge ${actor.type}`}>{actor.label}</em>
+                </span>
+                <span>{entry.doc_id || "Project"}</span>
+              </summary>
+              <p>{entry.summary || entry.reason || "No summary."}</p>
+              <StageFindings entry={entry} />
+              <div className="agentOutputGrid">
+                <div>
+                  <h3>Stats</h3>
+                  <pre>{JSON.stringify(entry.stats || {}, null, 2)}</pre>
+                </div>
+                <div>
+                  <h3>Input</h3>
+                  <pre>{JSON.stringify(entry.input || {}, null, 2)}</pre>
+                </div>
+                <div>
+                  <h3>Output</h3>
+                  <pre>{JSON.stringify(entry.output || entry.details || {}, null, 2)}</pre>
+                </div>
+              </div>
+            </details>
+          );
+        })
       ) : (
-        <p className="empty">No audit events yet.</p>
+        <p className="empty">No agent outputs yet.</p>
       )}
     </section>
   );
@@ -491,6 +674,7 @@ export default function App() {
   const [progress, setProgress] = useState({ processed: 0, total: 0, percent: 0, currentDoc: "" });
   const [selectedDocId, setSelectedDocId] = useState(null);
   const [activeView, setActiveView] = useState("project");
+  const [liveAuditEntries, setLiveAuditEntries] = useState([]);
 
   const docs = project.project.docs || [];
   const codedCount = docs.filter((doc) => doc.status === "coded").length;
@@ -581,10 +765,15 @@ export default function App() {
       return;
     }
     setIsProcessing(true);
+    setLiveAuditEntries([]);
+    setActiveView("audit");
     setProgress({ processed: 0, total: queuedCount, percent: 0, currentDoc: "" });
     setStatus("Processing queued datapoints.");
     try {
       const result = await window.QualaBackend.run(project, {
+        onAudit: (entry) => {
+          setLiveAuditEntries((current) => [...current, entry]);
+        },
         onProgress: ({ processed, total, percent, doc }) => {
           setProgress({
             processed,
@@ -595,8 +784,8 @@ export default function App() {
         }
       });
       updateProject(result);
+      setLiveAuditEntries([]);
       setProgress((current) => ({ ...current, processed: current.total, percent: 100, currentDoc: "" }));
-      setActiveView("results");
       setStatus("Processing complete. Download the JSON to save it.");
     } catch (error) {
       setStatus(error.message);
@@ -661,7 +850,7 @@ export default function App() {
         </div>
       )}
 
-      {activeView === "audit" && <AuditLog entries={project.audit_log || []} />}
+      {activeView === "audit" && <AgentOutputs entries={liveAuditEntries.length ? liveAuditEntries : project.audit_log || []} />}
 
       {activeView === "settings" && <Preferences preferences={project.project.preferences || {}} setPreference={setPreference} />}
     </main>

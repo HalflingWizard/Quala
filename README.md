@@ -102,7 +102,7 @@ The GUI has separate pages for Project, Queue, Results, Audit, and Settings.
 - Project loads, creates, and downloads project JSON files.
 - Queue adds pasted text or multiple TXT and DOCX files, previews datapoints, and processes the queue.
 - Results shows the codebook, related datapoints, and annotations.
-- Audit shows processing logs.
+- Agent Outputs shows each agent stage as it finishes, including findings, decisions, exact quote checks, raw input, raw output, and stats.
 - Settings stores API and model preferences for the session.
 
 The React app imports `app.js` so browser code can call `window.QualaBackend.run` and `window.QualaBackend.readDocxBytes`. The CLI uses the same file with `require("./app.js")`.

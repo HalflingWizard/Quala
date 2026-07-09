@@ -1683,6 +1683,7 @@
       }
 
       let qualaApi = createQualaApi();
+      let auditListener = null;
 
       function setQualaApi(api) {
         qualaApi = api ? { ...createQualaApi(), ...api } : createQualaApi();
@@ -1789,8 +1790,10 @@
       async function runQualaBackend(payload, options = {}) {
         const previousState = state;
         const previousApi = qualaApi;
+        const previousAuditListener = auditListener;
         if (options.api) setQualaApi(options.api);
         else if (options.fetch || options.baseUrl || options.timeoutMs) setQualaApi(createQualaApi(options));
+        auditListener = typeof options.onAudit === "function" ? options.onAudit : null;
         const apiState = projectStateFromApiPayload(payload || {}, options);
         state = apiState;
         try {
@@ -1799,6 +1802,7 @@
         } finally {
           state = previousState;
           qualaApi = previousApi;
+          auditListener = previousAuditListener;
         }
       }
 
@@ -2326,7 +2330,7 @@
 
       function addAuditLog(entry) {
         const actor = auditActor(entry);
-        state.auditLog.push({
+        const record = {
           timestamp: new Date().toISOString(),
           doc_id: entry.doc_id || "",
           event_type: entry.event_type,
@@ -2340,7 +2344,9 @@
           reason: entry.reason || "",
           approved_by: entry.approved_by || "",
           actor
-        });
+        };
+        state.auditLog.push(record);
+        if (auditListener) auditListener(record);
       }
 
       async function loadModels() {
