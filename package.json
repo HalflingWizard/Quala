@@ -1,6 +1,7 @@
 {
   "name": "quala",
   "version": "1.0.0",
+  "description": "CLI-first qualitative coding tool with a small React web GUI.",
   "private": true,
   "scripts": {
     "start": "vite --host 127.0.0.1",

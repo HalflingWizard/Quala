@@ -2,21 +2,31 @@
 
 Quala is a qualitative analysis tool for interviews, social media posts, field notes, and other text data.
 
-It has a CLI-first backend and a React web GUI. Both use the same reloadable project JSON file.
+It is a local, CLI-first Node app with a small React 18 web GUI built with Vite. Both front ends use the shared logic in `app.js` and read and write the same reloadable project JSON file.
+
+## Repo Shape
+
+- `app.js` has the shared Quala backend, OpenAI request helpers, DOCX text reader, exact quote verifier, export logic, and legacy browser helpers.
+- `cli.js` has the command line interface. It runs with `node cli.js`.
+- `src/App.jsx`, `src/main.jsx`, and `src/styles.css` make the React web GUI.
+- `index.html` is the Vite entry page.
+- `vite.config.js` exposes `OPENAI_API_KEY` or `VITE_OPENAI_API_KEY` from `.env` to the local web GUI at startup.
+- `smoke-test.js` checks the CLI, shared backend, quote verifier, model capability handling, and React/Vite wiring.
+- `package.json` defines `npm start`, `npm run build`, `npm run preview`, and `npm run smoke`.
 
 ## What It Does
 
 - Create a full project JSON file from the CLI.
 - Add datapoints from TXT files, DOCX files, or inline text.
 - Add multiple TXT and DOCX files to the process queue.
-- Add datapoints, load projects, process the queue, and download JSON from the React web GUI.
+- Add datapoints, load projects, process the queue, view progress, and download JSON from the React web GUI.
 - Process all queued datapoints with the OpenAI API.
 - Run a document scout that finds possible new concepts without seeing the codebook.
 - Run a novelty detector and merge reviewer before any codebook change.
 - Add verified new codes directly to the active codebook.
 - Run a codebook applier after codebook updates so new codes can apply to the same document.
 - Check every model quote with a non LLM verifier using exact substring matching before saving annotations.
-- Mark codes as active, dormant, merged, or rejected.
+- Mark codes as active, dormant, merged, rejected, needs human review, or candidate.
 - Keep full project JSON compatible with project loading and `arazilab/analysis_tools`.
 
 ## Run
@@ -91,9 +101,11 @@ The GUI has separate pages for Project, Queue, Results, Audit, and Settings.
 
 - Project loads, creates, and downloads project JSON files.
 - Queue adds pasted text or multiple TXT and DOCX files, previews datapoints, and processes the queue.
-- Results shows the codebook and annotations.
+- Results shows the codebook, related datapoints, and annotations.
 - Audit shows processing logs.
 - Settings stores API and model preferences for the session.
+
+The React app imports `app.js` so browser code can call `window.QualaBackend.run` and `window.QualaBackend.readDocxBytes`. The CLI uses the same file with `require("./app.js")`.
 
 ## Test
 
@@ -101,6 +113,12 @@ Run the startup smoke test.
 
 ```bash
 node smoke-test.js
+```
+
+The npm alias also works.
+
+```bash
+npm run smoke
 ```
 
 For web GUI changes, also run `npm start` and check these paths.
@@ -120,6 +138,20 @@ The JSON output is the complete project backup. It can be loaded into Quala late
 {
   "tool": "Quala",
   "exported_at": "2026-06-12T00:00:00.000Z",
+  "project": {
+    "docs": [
+      {
+        "id": "D1",
+        "source": "interview.txt",
+        "text": "Full datapoint text.",
+        "status": "coded"
+      }
+    ],
+    "selectedDocId": "D1",
+    "history": [],
+    "preferences": {},
+    "autosavedAt": "2026-06-12T00:00:00.000Z"
+  },
   "codebook": [
     {
       "code_id": "C001",

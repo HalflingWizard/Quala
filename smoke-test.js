@@ -266,6 +266,8 @@ assertIncludes(webApp, "QualaBackend.run", "Web GUI does not call the backend ru
 assertIncludes(webApp, "readDocxBytes", "Web GUI does not use the shared DOCX reader.");
 assertIncludes(webApp, ".docx", "Web GUI file input does not accept DOCX files.");
 assertIncludes(webApp, "multiple", "Web GUI file input does not accept multiple files.");
+assertIncludes(webApp, "onDrop", "Web GUI does not support drag and drop file import.");
+assertIncludes(webApp, "Drop TXT or DOCX files here", "Web GUI does not show a drag and drop target.");
 assertIncludes(webApp, "Process Queue", "Web GUI does not show a process queue.");
 assertIncludes(webApp, "role=\"progressbar\"", "Web GUI does not render a progress bar.");
 assertIncludes(webApp, "Main navigation", "Web GUI does not include page navigation.");
@@ -275,6 +277,7 @@ assertIncludes(webApp, "<th>Datapoints</th>", "Codebook does not show a datapoin
 assertIncludes(webApp, "downloadJson", "Web GUI cannot download project JSON.");
 assertIncludes(css, ".progressFill", "Web GUI progress bar styling is missing.");
 assertIncludes(css, ".appNav", "Web GUI navigation styling is missing.");
+assertIncludes(css, ".dropZone", "Web GUI drag and drop styling is missing.");
 assertIncludes(css, ".tagList", "Codebook datapoint tags are missing styling.");
 
 checkBackendRunWithoutSignal()

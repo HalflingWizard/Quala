@@ -202,10 +202,11 @@ function Preferences({ preferences, setPreference }) {
   );
 }
 
-function AddDatapoint({ onAdd, onAddMany, nextId }) {
+function AddDatapoint({ onAdd, onAddMany, nextId, onFileError }) {
   const [id, setId] = useState("D1");
   const [source, setSource] = useState("pasted");
   const [text, setText] = useState("");
+  const [isDraggingFiles, setIsDraggingFiles] = useState(false);
 
   function submit(event) {
     event.preventDefault();
@@ -216,8 +217,8 @@ function AddDatapoint({ onAdd, onAddMany, nextId }) {
     setText("");
   }
 
-  async function addDataFile(event) {
-    const files = Array.from(event.target.files || []);
+  async function addDataFiles(fileList) {
+    const files = Array.from(fileList || []);
     if (!files.length) return;
     try {
       const docs = [];
@@ -233,9 +234,35 @@ function AddDatapoint({ onAdd, onAddMany, nextId }) {
         nextNumber += 1;
       }
       onAddMany(docs);
+    } catch (error) {
+      onFileError(error.message || "Could not read one or more files.");
+    }
+  }
+
+  async function addDataFile(event) {
+    try {
+      await addDataFiles(event.target.files);
     } finally {
       event.target.value = "";
     }
+  }
+
+  function handleDragOver(event) {
+    event.preventDefault();
+    if (event.dataTransfer?.types?.includes("Files")) {
+      event.dataTransfer.dropEffect = "copy";
+      setIsDraggingFiles(true);
+    }
+  }
+
+  function handleDragLeave(event) {
+    if (!event.currentTarget.contains(event.relatedTarget)) setIsDraggingFiles(false);
+  }
+
+  async function handleDrop(event) {
+    event.preventDefault();
+    setIsDraggingFiles(false);
+    await addDataFiles(event.dataTransfer.files);
   }
 
   return (
@@ -267,6 +294,16 @@ function AddDatapoint({ onAdd, onAddMany, nextId }) {
               onChange={addDataFile}
             />
           </label>
+        </div>
+        <div
+          className={isDraggingFiles ? "dropZone active" : "dropZone"}
+          onDragEnter={handleDragOver}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
+          <strong>Drop TXT or DOCX files here</strong>
+          <span>Files are added to the queue as datapoints.</span>
         </div>
       </form>
     </section>
@@ -607,7 +644,12 @@ export default function App() {
 
       {activeView === "queue" && (
         <>
-          <AddDatapoint onAdd={addDatapoint} onAddMany={addManyDatapoints} nextId={() => nextDocId()} />
+          <AddDatapoint
+            onAdd={addDatapoint}
+            onAddMany={addManyDatapoints}
+            nextId={() => nextDocId()}
+            onFileError={setStatus}
+          />
           <Workspace project={project} selectedDocId={selectedDocId} setSelectedDocId={setSelectedDocId} />
         </>
       )}
