@@ -1431,6 +1431,49 @@
         };
       }
 
+      function refinementSchema() {
+        return {
+          name: "quala_code_refinement",
+          schema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              mode: { type: "string", enum: ["merge", "split"] },
+              summary: { type: "string" },
+              replacement_codes: {
+                type: "array",
+                items: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    temporary_id: { type: "string" },
+                    name: { type: "string" },
+                    definition: { type: "string" },
+                    source_code_ids: { type: "array", items: { type: "string" } },
+                    assignments: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        additionalProperties: false,
+                        properties: {
+                          doc_id: { type: "string" },
+                          quote: { type: "string" },
+                          reason: { type: "string" }
+                        },
+                        required: ["doc_id", "quote", "reason"]
+                      }
+                    }
+                  },
+                  required: ["temporary_id", "name", "definition", "source_code_ids", "assignments"]
+                }
+              }
+            },
+            required: ["mode", "summary", "replacement_codes"]
+          },
+          strict: true
+        };
+      }
+
       function codebookForModel() {
         return state.codebook
           .filter((code) => code.status === "active" || code.status === "dormant")
@@ -1586,6 +1629,112 @@
                   "same type of evidence",
                   "definitions would become clearer after merge",
                   "do not merge only because words are similar"
+                ]
+              },
+              null,
+              2
+            )
+          }
+        ];
+      }
+
+      function selectedCodesForRefinement(codeIds) {
+        const selected = new Set(codeIds || []);
+        return state.codebook.filter((code) => selected.has(code.code_id));
+      }
+
+      function collectCodeEvidenceForRefinement(selectedCodes) {
+        const selectedIds = new Set(selectedCodes.map((code) => code.code_id));
+        const selectedNames = new Set(selectedCodes.map((code) => code.name));
+        const docsById = new Map(state.docs.map((doc) => [doc.id, doc]));
+        const evidenceByKey = new Map();
+        for (const annotation of state.annotations || []) {
+          const sourceDoc = docsById.get(annotation.id);
+          if (!sourceDoc) continue;
+          for (const quote of annotation.quotes || []) {
+            const quoteCodeIds = quote.code_ids || [];
+            const quoteNames = quote.annotations || [];
+            const matchingCodes = selectedCodes.filter(
+              (code) => quoteCodeIds.includes(code.code_id) || quoteNames.includes(code.name)
+            );
+            if (!matchingCodes.length) continue;
+            const key = `${annotation.id}\n${quote.quote}`;
+            evidenceByKey.set(key, {
+              doc_id: annotation.id,
+              source: sourceDoc.source || annotation.source || "",
+              document_text: sourceDoc.text || annotation.text || "",
+              quote: quote.quote,
+              current_code_ids: matchingCodes.map((code) => code.code_id),
+              current_code_names: matchingCodes.map((code) => code.name),
+              rationale: quote.rationale || ""
+            });
+          }
+        }
+        for (const code of selectedCodes) {
+          for (const example of code.example_quotes || []) {
+            if (example.verified === false || !example.quote) continue;
+            const docId = example.doc_id || code.created_from_doc || "";
+            const sourceDoc = docsById.get(docId);
+            if (!sourceDoc) continue;
+            const key = `${docId}\n${example.quote}`;
+            if (evidenceByKey.has(key)) continue;
+            evidenceByKey.set(key, {
+              doc_id: docId,
+              source: sourceDoc.source || "",
+              document_text: sourceDoc.text || "",
+              quote: example.quote,
+              current_code_ids: selectedIds.has(code.code_id) ? [code.code_id] : [],
+              current_code_names: selectedNames.has(code.name) ? [code.name] : [],
+              rationale: ""
+            });
+          }
+        }
+        return Array.from(evidenceByKey.values());
+      }
+
+      function buildRefinementPrompt(request, selectedCodes, evidence) {
+        const mode = request.mode === "split" ? "split" : "merge";
+        const selectedCodebook = selectedCodes.map((code) => ({
+          code_id: code.code_id,
+          name: code.name,
+          definition: code.definition,
+          status: code.status
+        }));
+        const task =
+          mode === "split"
+            ? "Split one broad selected code into smaller active replacement codes. The new codes must stay inside the meaning of the original selected code."
+            : "Merge or consolidate the selected codes into a smaller, cleaner set of active replacement codes. You may return one replacement code or a few replacement codes when the evidence has meaningful subgroups.";
+        return [
+          {
+            role: "system",
+            content:
+              "You are a code refinement agent for qualitative coding. Return only JSON that matches the schema. Use only the selected evidence. Every assignment quote must be copied exactly from one selected document_text value. Do not invent evidence. Do not keep weak one-example codes unless the evidence is genuinely distinct."
+          },
+          {
+            role: "user",
+            content: JSON.stringify(
+              {
+                mode,
+                task,
+                user_lens: request.lens || "",
+                selected_codes: selectedCodebook,
+                selected_evidence: evidence.map((item) => ({
+                  doc_id: item.doc_id,
+                  source: item.source,
+                  document_text: item.document_text,
+                  quote: item.quote,
+                  current_code_ids: item.current_code_ids,
+                  current_code_names: item.current_code_names,
+                  rationale: item.rationale
+                })),
+                rules: [
+                  "Return replacement_codes that should replace the selected codes.",
+                  "Each replacement code needs a clear name and definition.",
+                  "Each assignment quote must be an exact contiguous substring of the matching document_text.",
+                  "For split, make smaller codes that remain aligned with the parent selected code.",
+                  "For merge, use the user_lens as the reason these codes belong together.",
+                  "It is acceptable to return two or three replacement codes instead of forcing one broad code.",
+                  "Avoid tiny codes supported by only one quote unless that quote is clearly a separate concept."
                 ]
               },
               null,
@@ -1799,6 +1948,84 @@
         try {
           await processQualaQueue({ signal: options.signal, onProgress: options.onProgress });
           return exportPayload(options.exportedAt || new Date().toISOString());
+        } finally {
+          state = previousState;
+          qualaApi = previousApi;
+          auditListener = previousAuditListener;
+        }
+      }
+
+      async function runCodeRefinement(payload, request = {}, options = {}) {
+        const previousState = state;
+        const previousApi = qualaApi;
+        const previousAuditListener = auditListener;
+        if (options.api) setQualaApi(options.api);
+        else if (options.fetch || options.baseUrl || options.timeoutMs) setQualaApi(createQualaApi(options));
+        auditListener = typeof options.onAudit === "function" ? options.onAudit : null;
+        state = projectStateFromApiPayload(payload || {}, options);
+        try {
+          const initialAuditLength = state.auditLog.length;
+          ensureProcessingActive(options.signal);
+          const mode = request.mode === "split" ? "split" : "merge";
+          const selectedCodeIds = Array.from(new Set(request.code_ids || request.selected_code_ids || []));
+          const selectedCodes = selectedCodesForRefinement(selectedCodeIds);
+          const minimumCodes = mode === "split" ? 1 : 2;
+          if (selectedCodes.length < minimumCodes) {
+            throw new Error(mode === "split" ? "Select one code to split." : "Select at least two codes to merge.");
+          }
+          const evidence = collectCodeEvidenceForRefinement(selectedCodes);
+          if (!evidence.length) {
+            throw new Error("No verified datapoints or quotes were found for the selected codes.");
+          }
+          addAuditLog({
+            doc_id: "",
+            event_type: "refinement_evidence",
+            title: "Refinement evidence",
+            summary: `${evidence.length} quotes collected for ${mode}.`,
+            stats: {
+              selected_codes: selectedCodes.length,
+              evidence_quotes: evidence.length,
+              datapoints: Array.from(new Set(evidence.map((item) => item.doc_id))).length
+            },
+            input: { request, selected_codes: selectedCodes.map((code) => ({ code_id: code.code_id, name: code.name })) },
+            output: { evidence }
+          });
+          if (options.onProgress) options.onProgress({ processed: 0, total: 3, percent: 15, doc: null });
+          const prompt = buildRefinementPrompt({ ...request, mode }, selectedCodes, evidence);
+          const rawProposal = await callOpenAI(prompt, refinementSchema(), options.signal);
+          ensureProcessingActive(options.signal);
+          addAuditLog({
+            doc_id: "",
+            event_type: "refinement_proposal",
+            title: mode === "split" ? "Split proposal" : "Merge proposal",
+            summary: `${(rawProposal.replacement_codes || []).length} replacement codes proposed.`,
+            stats: { replacement_codes: (rawProposal.replacement_codes || []).length },
+            input: { prompt },
+            output: rawProposal
+          });
+          if (options.onProgress) options.onProgress({ processed: 1, total: 3, percent: 55, doc: null });
+          const auditedProposal = auditRefinementProposal(rawProposal, selectedCodes);
+          addAuditLog({
+            doc_id: "",
+            event_type: "refinement_auditor",
+            title: "Refinement exact-match auditor",
+            summary: `${auditedProposal.stats.accepted_assignments} assignments accepted. ${auditedProposal.stats.rejected_assignments} assignments rejected.`,
+            stats: auditedProposal.stats,
+            input: { proposal: rawProposal },
+            output: auditedProposal.audit
+          });
+          if (options.onProgress) options.onProgress({ processed: 3, total: 3, percent: 100, doc: null });
+          return {
+            mode,
+            lens: request.lens || "",
+            selected_codes: selectedCodes.map((code) => ({
+              code_id: code.code_id,
+              name: code.name,
+              definition: code.definition
+            })),
+            proposal: auditedProposal.proposal,
+            audit_log: state.auditLog.slice(initialAuditLength)
+          };
         } finally {
           state = previousState;
           qualaApi = previousApi;
@@ -2067,6 +2294,69 @@
           else failed_quotes.push(result);
         }
         return { verified_quotes, failed_quotes };
+      }
+
+      function auditRefinementProposal(rawProposal, selectedCodes) {
+        const docsById = new Map(state.docs.map((doc) => [doc.id, doc]));
+        const selectedCodeIds = new Set(selectedCodes.map((code) => code.code_id));
+        const accepted = [];
+        const rejected = [];
+        const replacementCodes = (rawProposal.replacement_codes || [])
+          .map((code, index) => {
+            const validAssignments = [];
+            for (const assignment of code.assignments || []) {
+              const doc = docsById.get(assignment.doc_id);
+              const quote = String(assignment.quote || "");
+              const start = doc && quote ? String(doc.text || "").indexOf(quote) : -1;
+              const auditItem = {
+                temporary_id: code.temporary_id || `R${index + 1}`,
+                code_name: code.name || "",
+                doc_id: assignment.doc_id || "",
+                quote,
+                verified: start !== -1,
+                start_char: start !== -1 ? start : null,
+                end_char: start !== -1 ? start + quote.length : null
+              };
+              if (auditItem.verified) {
+                accepted.push(auditItem);
+                validAssignments.push({
+                  doc_id: assignment.doc_id,
+                  quote,
+                  reason: assignment.reason || "",
+                  verified: true,
+                  start_char: auditItem.start_char,
+                  end_char: auditItem.end_char
+                });
+              } else {
+                rejected.push(auditItem);
+              }
+            }
+            return {
+              temporary_id: code.temporary_id || `R${index + 1}`,
+              name: String(code.name || "").trim(),
+              definition: String(code.definition || "").trim(),
+              source_code_ids: (code.source_code_ids || []).filter((codeId) => selectedCodeIds.has(codeId)),
+              assignments: validAssignments
+            };
+          })
+          .filter((code) => code.name && code.assignments.length);
+        return {
+          proposal: {
+            mode: rawProposal.mode || "",
+            summary: rawProposal.summary || "",
+            replacement_codes: replacementCodes
+          },
+          stats: {
+            proposed_codes: (rawProposal.replacement_codes || []).length,
+            accepted_codes: replacementCodes.length,
+            accepted_assignments: accepted.length,
+            rejected_assignments: rejected.length
+          },
+          audit: {
+            verified_assignments: accepted,
+            failed_assignments: rejected
+          }
+        };
       }
 
       function verifiedQuoteSet(verification) {
@@ -2600,6 +2890,7 @@
         callModel,
         listModels: (options = {}) => qualaApi.listModels(options),
         run: runQualaBackend,
+        refineCodes: runCodeRefinement,
         processProject: runQualaBackend,
         processQueue: processQualaQueue,
         projectStateFromPayload: projectStateFromApiPayload,

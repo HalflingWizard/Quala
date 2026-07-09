@@ -151,7 +151,7 @@ function Navigation({ activeView, setActiveView }) {
     ["project", "Project"],
     ["queue", "Queue"],
     ["results", "Results"],
-    ["codeMerger", "Code Merger"],
+    ["codeRefinement", "Code Refinement"],
     ["audit", "Agent Outputs"],
     ["settings", "Settings"]
   ];
@@ -447,36 +447,85 @@ function Codebook({ codebook, docs, annotations }) {
   );
 }
 
-function CodeMerger({ codebook, docs, annotations, onMerge }) {
+function CodeRefinement({ codebook, docs, annotations, onQuickMerge, onRunRefinement, onApplyProposal, isProcessing }) {
+  const [mode, setMode] = useState("agentMerge");
   const [selectedCodeIds, setSelectedCodeIds] = useState([]);
   const [mergedName, setMergedName] = useState("");
   const [mergedDefinition, setMergedDefinition] = useState("");
+  const [lens, setLens] = useState("");
+  const [proposal, setProposal] = useState(null);
 
   function toggleCode(codeId) {
-    setSelectedCodeIds((current) =>
-      current.includes(codeId) ? current.filter((item) => item !== codeId) : [...current, codeId]
-    );
+    setProposal(null);
+    setSelectedCodeIds((current) => {
+      if (mode === "split") return current.includes(codeId) ? [] : [codeId];
+      return current.includes(codeId) ? current.filter((item) => item !== codeId) : [...current, codeId];
+    });
   }
 
-  function submitMerge(event) {
+  function submitQuickMerge(event) {
     event.preventDefault();
-    if (onMerge(selectedCodeIds, mergedName, mergedDefinition)) {
+    if (onQuickMerge(selectedCodeIds, mergedName, mergedDefinition)) {
       setSelectedCodeIds([]);
       setMergedName("");
       setMergedDefinition("");
+      setProposal(null);
     }
   }
 
+  async function submitAgentRefinement(event) {
+    event.preventDefault();
+    const result = await onRunRefinement({
+      mode: mode === "split" ? "split" : "merge",
+      codeIds: selectedCodeIds,
+      lens
+    });
+    if (result) setProposal(result);
+  }
+
+  function applyProposal() {
+    if (onApplyProposal(proposal, lens)) {
+      setSelectedCodeIds([]);
+      setLens("");
+      setProposal(null);
+    }
+  }
+
+  const activeCodes = codebook.filter((code) => !["merged", "rejected"].includes(String(code.status || "").toLowerCase()));
+  const needsMultiple = mode !== "split";
+  const canRunAgent = selectedCodeIds.length >= (needsMultiple ? 2 : 1) && !isProcessing;
+
   return (
     <section className="panel">
-      <h2>Code Merger</h2>
-      <form className="mergeLayout" onSubmit={submitMerge}>
+      <h2>Code Refinement</h2>
+      <div className="modeTabs" role="tablist" aria-label="Code refinement modes">
+        {[
+          ["agentMerge", "Agent-guided merge"],
+          ["split", "Agent-guided split"],
+          ["quickMerge", "Quick merge"]
+        ].map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            className={mode === id ? "navButton active" : "navButton"}
+            onClick={() => {
+              setMode(id);
+              setSelectedCodeIds([]);
+              setProposal(null);
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <div className="mergeLayout">
         <div className="mergeCodeList">
           {codebook.length ? (
             codebook.map((code) => {
               const codeId = code.code_id || code.name;
               const relatedDatapoints = relatedDatapointsForCode(code, docs, annotations);
-              const canSelect = !["merged", "rejected"].includes(String(code.status || "").toLowerCase());
+              const canSelect = activeCodes.some((activeCode) => (activeCode.code_id || activeCode.name) === codeId);
               return (
                 <label key={codeId} className={canSelect ? "mergeCodeItem" : "mergeCodeItem disabled"}>
                   <input
@@ -511,31 +560,79 @@ function CodeMerger({ codebook, docs, annotations, onMerge }) {
         </div>
 
         <div className="mergePanel">
-          <label>
-            New merged code name
-            <input
-              value={mergedName}
-              onChange={(event) => setMergedName(event.target.value)}
-              placeholder="Enter your merged code name"
-            />
-          </label>
-          <label>
-            New merged definition
-            <textarea
-              rows={6}
-              value={mergedDefinition}
-              onChange={(event) => setMergedDefinition(event.target.value)}
-              placeholder="Describe what these codes mean together"
-            />
-          </label>
-          <div className="buttonRow">
-            <button type="submit" disabled={selectedCodeIds.length < 2 || !mergedName.trim()}>
-              Merge selected codes
-            </button>
-            <span className="muted">{selectedCodeIds.length} selected</span>
-          </div>
+          {mode === "quickMerge" ? (
+            <form className="mergePanel" onSubmit={submitQuickMerge}>
+              <label>
+                New merged code name
+                <input
+                  value={mergedName}
+                  onChange={(event) => setMergedName(event.target.value)}
+                  placeholder="Enter your merged code name"
+                />
+              </label>
+              <label>
+                New merged definition
+                <textarea
+                  rows={6}
+                  value={mergedDefinition}
+                  onChange={(event) => setMergedDefinition(event.target.value)}
+                  placeholder="Describe what these codes mean together"
+                />
+              </label>
+              <div className="buttonRow">
+                <button type="submit" disabled={selectedCodeIds.length < 2 || !mergedName.trim()}>
+                  Merge selected codes
+                </button>
+                <span className="muted">{selectedCodeIds.length} selected</span>
+              </div>
+            </form>
+          ) : (
+            <form className="mergePanel" onSubmit={submitAgentRefinement}>
+              <label>
+                {mode === "split" ? "Split guidance" : "Merge lens"}
+                <textarea
+                  rows={6}
+                  value={lens}
+                  onChange={(event) => setLens(event.target.value)}
+                  placeholder={
+                    mode === "split"
+                      ? "Optional. Describe what smaller distinctions should matter inside this broad code."
+                      : "Describe the shared idea that connects these codes."
+                  }
+                />
+              </label>
+              <div className="buttonRow">
+                <button type="submit" disabled={!canRunAgent}>
+                  {mode === "split" ? "Split with agents" : "Merge with agents"}
+                </button>
+                <span className="muted">{selectedCodeIds.length} selected</span>
+              </div>
+            </form>
+          )}
+
+          {proposal ? (
+            <div className="proposalPanel">
+              <h3>Proposed replacement codes</h3>
+              <p className="muted">{proposal.proposal?.summary || "Review the proposed code changes."}</p>
+              {(proposal.proposal?.replacement_codes || []).length ? (
+                proposal.proposal.replacement_codes.map((code) => (
+                  <article key={code.temporary_id || code.name} className="findingCard">
+                    <h3>{code.name}</h3>
+                    <p>{code.definition}</p>
+                    <p className="muted">{(code.assignments || []).length} verified quote assignments</p>
+                    <QuoteList quotes={(code.assignments || []).map((item) => item.quote)} />
+                  </article>
+                ))
+              ) : (
+                <p className="empty">No verified replacement codes were proposed.</p>
+              )}
+              <button type="button" disabled={!(proposal.proposal?.replacement_codes || []).length} onClick={applyProposal}>
+                Apply proposal
+              </button>
+            </div>
+          ) : null}
         </div>
-      </form>
+      </div>
     </section>
   );
 }
@@ -580,7 +677,10 @@ function auditActor(entry) {
     codebook_update: { label: "Quala System", type: "system" },
     document_processed: { label: "Quala System", type: "system" },
     active_code_added: { label: "Quala System", type: "system" },
-    merge_applied: { label: "Quala System", type: "system" }
+    merge_applied: { label: "Quala System", type: "system" },
+    refinement_evidence: { label: "Refinement Agent", type: "agent" },
+    refinement_proposal: { label: "Refinement Agent", type: "agent" },
+    refinement_auditor: { label: "Exact-match Auditor", type: "auditor" }
   };
   return actors[entry.event_type] || { label: "Quala System", type: "system" };
 }
@@ -708,6 +808,49 @@ function StageFindings({ entry }) {
         <article className="findingCard">
           <h3>Rejected quotes</h3>
           <QuoteList quotes={(output.failed_quotes || []).map((item) => item.quote)} />
+        </article>
+      </div>
+    );
+  }
+  if (entry.event_type === "refinement_evidence") {
+    return (
+      <div className="stageFindings">
+        {(output.evidence || []).map((item, index) => (
+          <article key={`${item.doc_id}-${index}`} className="findingCard">
+            <h3>{item.doc_id}</h3>
+            <p className="muted">{(item.current_code_names || []).join(", ")}</p>
+            <blockquote>
+              <p>{item.quote}</p>
+            </blockquote>
+          </article>
+        ))}
+      </div>
+    );
+  }
+  if (entry.event_type === "refinement_proposal") {
+    return (
+      <div className="stageFindings">
+        {(output.replacement_codes || []).map((code) => (
+          <article key={code.temporary_id || code.name} className="findingCard">
+            <h3>{code.name}</h3>
+            <p>{code.definition}</p>
+            <p className="muted">{(code.source_code_ids || []).join(", ")}</p>
+            <QuoteList quotes={(code.assignments || []).map((item) => item.quote)} />
+          </article>
+        ))}
+      </div>
+    );
+  }
+  if (entry.event_type === "refinement_auditor") {
+    return (
+      <div className="stageFindings">
+        <article className="findingCard">
+          <h3>Accepted assignments</h3>
+          <QuoteList quotes={(output.verified_assignments || []).map((item) => item.quote)} />
+        </article>
+        <article className="findingCard">
+          <h3>Rejected assignments</h3>
+          <QuoteList quotes={(output.failed_assignments || []).map((item) => item.quote)} />
         </article>
       </div>
     );
@@ -998,6 +1141,170 @@ export default function App() {
     return true;
   }
 
+  async function runAgentRefinement({ mode, codeIds, lens }) {
+    if (!window.QualaBackend?.refineCodes) {
+      setStatus("Code refinement backend did not load.");
+      return null;
+    }
+    if (mode === "split" && codeIds.length !== 1) {
+      setStatus("Select one code to split.");
+      return null;
+    }
+    if (mode === "merge" && codeIds.length < 2) {
+      setStatus("Select at least two codes to merge.");
+      return null;
+    }
+    setIsProcessing(true);
+    setLiveAuditEntries([]);
+    setProgress({ processed: 0, total: 3, percent: 0, currentDoc: "" });
+    setStatus(mode === "split" ? "Running agent-guided split." : "Running agent-guided merge.");
+    try {
+      const result = await window.QualaBackend.refineCodes(
+        project,
+        {
+          mode,
+          code_ids: codeIds,
+          lens
+        },
+        {
+          onAudit: (entry) => {
+            setLiveAuditEntries((current) => [...current, entry]);
+          },
+          onProgress: ({ processed, total, percent }) => {
+            setProgress({ processed, total, percent, currentDoc: "" });
+          }
+        }
+      );
+      setStatus("Review the proposed replacement codes.");
+      return result;
+    } catch (error) {
+      setStatus(error.message);
+      return null;
+    } finally {
+      setIsProcessing(false);
+    }
+  }
+
+  function applyRefinementProposal(refinementResult, lens) {
+    const replacementCodes = refinementResult?.proposal?.replacement_codes || [];
+    const selectedCodes = refinementResult?.selected_codes || [];
+    if (!replacementCodes.length || !selectedCodes.length) {
+      setStatus("There is no refinement proposal to apply.");
+      return false;
+    }
+    setProject((current) => {
+      const exportedAt = nowIso();
+      const selectedIds = new Set(selectedCodes.map((code) => code.code_id));
+      const selectedNames = new Set(selectedCodes.map((code) => code.name));
+      let nextCodeNumber = Number(nextCodeIdFromCodebook(current.codebook || []).replace(/^C/i, ""));
+      const newCodes = replacementCodes.map((code) => {
+        const codeId = `C${String(nextCodeNumber).padStart(3, "0")}`;
+        nextCodeNumber += 1;
+        return {
+          code_id: codeId,
+          name: code.name,
+          definition: code.definition,
+          status: "active",
+          created_from_doc: code.assignments?.[0]?.doc_id || "",
+          example_quotes: (code.assignments || []).map((assignment) => ({
+            doc_id: assignment.doc_id,
+            quote: assignment.quote,
+            verified: assignment.verified !== false,
+            start_char: assignment.start_char,
+            end_char: assignment.end_char
+          })),
+          history: [
+            {
+              at: exportedAt,
+              event: refinementResult.mode === "split" ? "manual_guided_split" : "manual_guided_merge",
+              doc_id: "",
+              reason: lens || refinementResult.lens || refinementResult.proposal.summary || "",
+              source_code_ids: code.source_code_ids || Array.from(selectedIds)
+            }
+          ]
+        };
+      });
+      const assignmentLookup = new Map();
+      replacementCodes.forEach((proposalCode, index) => {
+        const newCode = newCodes[index];
+        for (const assignment of proposalCode.assignments || []) {
+          const key = `${assignment.doc_id}\n${assignment.quote}`;
+          const currentAssignments = assignmentLookup.get(key) || [];
+          currentAssignments.push({ code_id: newCode.code_id, name: newCode.name });
+          assignmentLookup.set(key, currentAssignments);
+        }
+      });
+      const nextData = (current.data || []).map((doc) => {
+        const nextQuotes = (doc.quotes || []).map((quote) => {
+          const hasSelected =
+            (quote.code_ids || []).some((codeId) => selectedIds.has(codeId)) ||
+            (quote.annotations || []).some((name) => selectedNames.has(name));
+          const replacements = assignmentLookup.get(`${doc.id}\n${quote.quote}`) || [];
+          if (!hasSelected && !replacements.length) return quote;
+          return {
+            ...quote,
+            code_ids: uniqueList([
+              ...(quote.code_ids || []).filter((codeId) => !selectedIds.has(codeId)),
+              ...replacements.map((item) => item.code_id)
+            ]),
+            annotations: uniqueList([
+              ...(quote.annotations || []).filter((name) => !selectedNames.has(name)),
+              ...replacements.map((item) => item.name)
+            ])
+          };
+        });
+        return {
+          ...doc,
+          annotation: uniqueList(nextQuotes.flatMap((quote) => quote.annotations || [])),
+          quotes: nextQuotes
+        };
+      });
+      const nextCodebook = [
+        ...(current.codebook || []).map((code) => {
+          if (!selectedIds.has(code.code_id)) return code;
+          return {
+            ...code,
+            status: "merged",
+            history: [
+              ...(code.history || []),
+              {
+                at: exportedAt,
+                event: refinementResult.mode === "split" ? "split_by_user" : "merged_by_user",
+                doc_id: "",
+                reason: `Replaced by ${newCodes.map((item) => item.code_id).join(", ")}.`
+              }
+            ]
+          };
+        }),
+        ...newCodes
+      ];
+      return {
+        ...current,
+        exported_at: exportedAt,
+        codebook: nextCodebook,
+        data: nextData,
+        audit_log: [...(current.audit_log || []), ...(refinementResult.audit_log || [])],
+        project: {
+          ...current.project,
+          autosavedAt: exportedAt,
+          history: [
+            ...(current.project.history || []),
+            {
+              at: exportedAt,
+              event: refinementResult.mode === "split" ? "manual_guided_split" : "manual_guided_merge",
+              reason: lens || refinementResult.lens || refinementResult.proposal.summary || "",
+              source_code_ids: Array.from(selectedIds),
+              replacement_code_names: newCodes.map((code) => code.name)
+            }
+          ]
+        }
+      };
+    });
+    setActiveView("results");
+    setStatus("Applied the refinement proposal.");
+    return true;
+  }
+
   async function processProject() {
     if (!docs.length) {
       setStatus("Add at least one datapoint first.");
@@ -1093,12 +1400,15 @@ export default function App() {
         </div>
       )}
 
-      {activeView === "codeMerger" && (
-        <CodeMerger
+      {activeView === "codeRefinement" && (
+        <CodeRefinement
           codebook={project.codebook || []}
           docs={docs}
           annotations={project.data || []}
-          onMerge={mergeCodes}
+          onQuickMerge={mergeCodes}
+          onRunRefinement={runAgentRefinement}
+          onApplyProposal={applyRefinementProposal}
+          isProcessing={isProcessing}
         />
       )}
 

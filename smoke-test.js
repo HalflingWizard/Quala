@@ -254,6 +254,68 @@ async function checkBackendRunWithoutSignal() {
   }
 }
 
+async function checkCodeRefinementWithoutNetwork() {
+  const auditEvents = [];
+  const result = await QualaBackend.refineCodes(
+    {
+      apiKey: "test-key",
+      project: {
+        docs: [{ id: "D1", source: "stub", text: "alpha beta gamma", status: "coded" }]
+      },
+      codebook: [
+        { code_id: "C001", name: "Alpha code", definition: "Alpha.", status: "active" },
+        { code_id: "C002", name: "Beta code", definition: "Beta.", status: "active" }
+      ],
+      data: [
+        {
+          id: "D1",
+          source: "stub",
+          text: "alpha beta gamma",
+          annotation: ["Alpha code", "Beta code"],
+          quotes: [
+            { quote: "alpha", annotations: ["Alpha code"], code_ids: ["C001"] },
+            { quote: "beta", annotations: ["Beta code"], code_ids: ["C002"] }
+          ]
+        }
+      ]
+    },
+    { mode: "merge", code_ids: ["C001", "C002"], lens: "Greek letter mentions" },
+    {
+      onAudit(event) {
+        auditEvents.push(event);
+      },
+      api: {
+        async createStructuredResponse({ schema }) {
+          if (schema.name !== "quala_code_refinement") throw new Error(`Unexpected schema ${schema.name}`);
+          return {
+            mode: "merge",
+            summary: "Merged related Greek letter mentions.",
+            replacement_codes: [
+              {
+                temporary_id: "R1",
+                name: "Greek letter mentions",
+                definition: "Mentions of Greek letter terms.",
+                source_code_ids: ["C001", "C002"],
+                assignments: [
+                  { doc_id: "D1", quote: "alpha", reason: "Exact alpha quote." },
+                  { doc_id: "D1", quote: "missing quote", reason: "This should be rejected." }
+                ]
+              }
+            ]
+          };
+        }
+      }
+    }
+  );
+  const replacement = result.proposal.replacement_codes[0];
+  if (!replacement || replacement.assignments.length !== 1 || replacement.assignments[0].quote !== "alpha") {
+    throw new Error("Code refinement did not keep only exact quote assignments.");
+  }
+  if (!auditEvents.some((event) => event.event_type === "refinement_auditor")) {
+    throw new Error("Code refinement did not stream auditor output.");
+  }
+}
+
 const html = fs.readFileSync(path.join(__dirname, "index.html"), "utf8");
 const webApp = fs.readFileSync(path.join(__dirname, "src", "App.jsx"), "utf8");
 const main = fs.readFileSync(path.join(__dirname, "src", "main.jsx"), "utf8");
@@ -285,19 +347,27 @@ assertIncludes(webApp, "StageFindings", "Web GUI does not render readable agent 
 assertIncludes(webApp, "onAudit", "Web GUI does not receive live agent output events.");
 assertIncludes(webApp, "relatedDatapointsForCode", "Codebook does not calculate related datapoints.");
 assertIncludes(webApp, "<th>Datapoints</th>", "Codebook does not show a datapoints column.");
-assertIncludes(webApp, "Code Merger", "Web GUI does not expose a code merger page.");
+assertIncludes(webApp, "Code Refinement", "Web GUI does not expose a code refinement page.");
 assertIncludes(webApp, "mergeCodes", "Web GUI cannot merge selected codes.");
+assertIncludes(webApp, "runAgentRefinement", "Web GUI cannot run agent-guided code refinement.");
+assertIncludes(webApp, "Agent-guided split", "Web GUI does not expose agent-guided split.");
 assertIncludes(webApp, "manual_merge", "Code merger does not record a manual merge history event.");
+assertIncludes(webApp, "manual_guided_split", "Code refinement does not record split history.");
+assertIncludes(webApp, "manual_guided_merge", "Code refinement does not record guided merge history.");
+assertIncludes(webApp, "refineCodes", "Web GUI does not call the code refinement backend.");
+assertIncludes(fs.readFileSync(path.join(__dirname, "app.js"), "utf8"), "refineCodes: runCodeRefinement", "Backend does not expose code refinement.");
 assertIncludes(webApp, "downloadJson", "Web GUI cannot download project JSON.");
 assertIncludes(css, ".progressFill", "Web GUI progress bar styling is missing.");
 assertIncludes(css, ".appNav", "Web GUI navigation styling is missing.");
 assertIncludes(css, ".mergeCodeList", "Code merger list styling is missing.");
+assertIncludes(css, ".proposalPanel", "Code refinement proposal styling is missing.");
 assertIncludes(css, ".actorBadge", "Agent output actor badge styling is missing.");
 assertIncludes(css, ".findingCard", "Readable agent finding cards are missing styling.");
 assertIncludes(css, ".dropZone", "Web GUI drag and drop styling is missing.");
 assertIncludes(css, ".tagList", "Codebook datapoint tags are missing styling.");
 
 checkBackendRunWithoutSignal()
+  .then(checkCodeRefinementWithoutNetwork)
   .then(() => {
     console.log("startup ok");
   })
