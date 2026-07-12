@@ -21,6 +21,7 @@
           maxQuotes: 12,
           codingUnitSize: 3,
           codeAbstraction: 3,
+          themeGranularity: "balanced",
           lens:
             "This is a general qualitative study. Identify recurring themes, important differences between participants or documents, unexpected concerns, helpful or harmful experiences, needs, barriers, motivations, decisions, and concrete examples that answer the research question.",
           codebookPrompt:
@@ -35,6 +36,26 @@
       };
 
       const CODE_STATUSES = ["active", "merged", "dormant", "rejected", "needs_human_review", "candidate"];
+      const THEME_GRANULARITY_OPTIONS = {
+        broad: {
+          label: "Broad",
+          summary: "Use fewer, larger themes.",
+          prompt:
+            "Prefer fewer, broader themes. Merge closely related candidate themes when they answer the same research question, even if their wording differs. Treat low-count themes as candidates for merging unless they capture a clearly distinct or important idea."
+        },
+        balanced: {
+          label: "Balanced",
+          summary: "Balance theme clarity and detail.",
+          prompt:
+            "Balance theme detail with a manageable codebook. Merge candidate themes when their meaning and use are substantially the same. Keep a low-count theme only when it captures a distinct idea that would be lost by merging."
+        },
+        detailed: {
+          label: "Detailed",
+          summary: "Keep more specific themes.",
+          prompt:
+            "Prefer more specific themes. Do not merge candidate themes only because they are related or low count. Keep smaller themes separate when they capture a distinct participant meaning, context, mechanism, or consequence."
+        }
+      };
       const CODING_BEHAVIOR_DEMO = {
         paragraphs: [
           "In our team, everyone expects instant replies. I spend half my day answering Slack messages. Then I have no time left for actual work. I keep switching between Slack, email, and meetings, and I cannot focus.",
@@ -241,6 +262,7 @@
         mergePrompt: $("mergePrompt"),
         modelPill: $("modelPill"),
         modelSelect: $("modelSelect"),
+        themeGranularity: $("themeGranularity"),
         newId: $("newId"),
         newSource: $("newSource"),
         newText: $("newText"),
@@ -524,6 +546,11 @@
         els.maxQuotes.value = state.preferences.maxQuotes;
         els.codingUnitSize.value = state.preferences.codingUnitSize || defaults.preferences.codingUnitSize;
         els.codeAbstraction.value = state.preferences.codeAbstraction || defaults.preferences.codeAbstraction;
+        if (els.themeGranularity) {
+          els.themeGranularity.value = THEME_GRANULARITY_OPTIONS[state.preferences.themeGranularity]
+            ? state.preferences.themeGranularity
+            : defaults.preferences.themeGranularity;
+        }
         els.lens.value = state.preferences.lens;
         els.codebookPrompt.value = state.preferences.codebookPrompt;
         els.refinePrompt.value = state.preferences.refinePrompt;
@@ -708,8 +735,7 @@
         return rows.sort(
           (a, b) =>
             b.coverage.count - a.coverage.count ||
-            b.coverage.percent - a.coverage.percent ||
-            a.code.name.localeCompare(b.code.name)
+            String(a.code.name || a.code.code_id || "").localeCompare(String(b.code.name || b.code.code_id || ""))
         );
       }
 
@@ -966,6 +992,11 @@
         state.preferences.maxQuotes = Number(els.maxQuotes.value || 12);
         state.preferences.codingUnitSize = Number(els.codingUnitSize.value || defaults.preferences.codingUnitSize);
         state.preferences.codeAbstraction = Number(els.codeAbstraction.value || defaults.preferences.codeAbstraction);
+        if (els.themeGranularity) {
+          state.preferences.themeGranularity = THEME_GRANULARITY_OPTIONS[els.themeGranularity.value]
+            ? els.themeGranularity.value
+            : defaults.preferences.themeGranularity;
+        }
         state.preferences.lens = els.lens.value.trim();
         state.preferences.codebookPrompt = els.codebookPrompt.value.trim();
         state.preferences.refinePrompt = els.refinePrompt.value.trim();
@@ -1033,6 +1064,67 @@
           percent: Math.round((docIds.size / total) * 100),
           docIds: Array.from(docIds).sort((a, b) => a.localeCompare(b))
         };
+      }
+
+      function sortedCodesByPrevalence(codebook, docs = state.docs, annotations = state.annotations) {
+        return [...(codebook || [])].sort((a, b) => {
+          const aCoverage = coverageForCode(a, docs, annotations);
+          const bCoverage = coverageForCode(b, docs, annotations);
+          return (
+            bCoverage.count - aCoverage.count ||
+            String(a.name || a.code_id || "").localeCompare(String(b.name || b.code_id || ""))
+          );
+        });
+      }
+
+      function exampleDatapointsForCode(code, docs = state.docs, annotations = state.annotations) {
+        const docsById = new Map((docs || []).map((doc) => [String(doc.id), doc]));
+        const annotationsById = new Map((annotations || []).map((doc) => [String(doc.id), doc]));
+        const docIds = new Set(coverageForCode(code, docs, annotations).docIds.map(String));
+        for (const example of code.example_quotes || []) {
+          const docId = example.doc_id || code.created_from_doc;
+          if (docId && example.verified !== false) docIds.add(String(docId));
+        }
+        return Array.from(docIds)
+          .sort((a, b) => a.localeCompare(b))
+          .map((docId) => {
+            const sourceDoc = docsById.get(docId) || {};
+            const annotationDoc = annotationsById.get(docId) || {};
+            const quoteRows = [];
+            for (const quote of annotationDoc.quotes || []) {
+              if (quoteMatchesCode(quote, code)) {
+                quoteRows.push({
+                  id: quote.id,
+                  quote: quote.quote,
+                  code_ids: quote.code_ids || [],
+                  annotations: quote.annotations || [],
+                  certainty: quote.certainty,
+                  rationale: quote.rationale
+                });
+              }
+            }
+            for (const example of code.example_quotes || []) {
+              const exampleDocId = String(example.doc_id || code.created_from_doc || "");
+              if (example.verified === false || exampleDocId !== docId || !example.quote) continue;
+              if (quoteRows.some((quote) => quote.quote === example.quote)) continue;
+              quoteRows.push({
+                id: "",
+                quote: example.quote,
+                code_ids: code.code_id ? [code.code_id] : [],
+                annotations: code.name ? [code.name] : [],
+                certainty: "",
+                rationale: "Codebook example quote."
+              });
+            }
+            return {
+              id: docId,
+              source: sourceDoc.source || annotationDoc.source || "",
+              text: sourceDoc.text || annotationDoc.text || "",
+              status: sourceDoc.status || "",
+              annotation: annotationDoc.annotation || [],
+              quotes: quoteRows
+            };
+          });
       }
 
       function bestQuoteForCode(code, annotations = state.annotations) {
@@ -1475,7 +1567,7 @@
       }
 
       function codebookForModel() {
-        return state.codebook
+        return sortedCodesByPrevalence(state.codebook)
           .filter((code) => code.status === "active" || code.status === "dormant")
           .map((code) => ({
             code_id: code.code_id,
@@ -1486,7 +1578,7 @@
       }
 
       function currentCodebookForModel() {
-        return state.codebook
+        return sortedCodesByPrevalence(state.codebook)
           .filter((code) => code.status !== "rejected" && code.status !== "merged")
           .map((code) => ({
             code_id: code.code_id,
@@ -1520,8 +1612,23 @@
         ].join("\n");
       }
 
+      function themeGranularityOption(value) {
+        return THEME_GRANULARITY_OPTIONS[value] || THEME_GRANULARITY_OPTIONS[defaults.preferences.themeGranularity];
+      }
+
+      function getThemeGranularityPrompt(value) {
+        const option = themeGranularityOption(value);
+        return [
+          `Theme granularity, ${option.label}`,
+          option.prompt,
+          "Use this setting when deciding whether a candidate theme should become a new code, be marked already covered, or be reviewed for merging.",
+          "Use this setting when deciding whether low-count themes should stay separate or be merged into clearer existing themes."
+        ].join("\n");
+      }
+
       function buildScoutPrompt(doc) {
         const codingBehavior = getCodingBehaviorPrompt(state.preferences.codingUnitSize, state.preferences.codeAbstraction);
+        const themeGranularity = getThemeGranularityPrompt(state.preferences.themeGranularity);
         return [
           {
             role: "system",
@@ -1536,6 +1643,7 @@
                 study_lens: state.preferences.lens,
                 scout_instruction: state.preferences.codebookPrompt,
                 coding_behavior_instruction: codingBehavior,
+                theme_granularity_instruction: themeGranularity,
                 document_text: doc.text
               },
               null,
@@ -1547,6 +1655,7 @@
 
       function buildApplierPrompt(doc) {
         const codingBehavior = getCodingBehaviorPrompt(state.preferences.codingUnitSize, state.preferences.codeAbstraction);
+        const themeGranularity = getThemeGranularityPrompt(state.preferences.themeGranularity);
         return [
           {
             role: "system",
@@ -1562,6 +1671,7 @@
                 codebook: codebookForModel(),
                 annotation_instruction: state.preferences.annotationPrompt,
                 coding_behavior_instruction: codingBehavior,
+                theme_granularity_instruction: themeGranularity,
                 max_quotes_per_code: state.preferences.maxQuotes,
                 required_behavior: [
                   "Apply only listed code_id values.",
@@ -1583,6 +1693,7 @@
       }
 
       function buildNoveltyPrompt(doc, scoutOutput) {
+        const themeGranularity = getThemeGranularityPrompt(state.preferences.themeGranularity);
         return [
           {
             role: "system",
@@ -1595,6 +1706,7 @@
               {
                 doc_id: doc.id,
                 novelty_instruction: state.preferences.refinePrompt,
+                theme_granularity_instruction: themeGranularity,
                 scout_codes: scoutOutput.scout_codes || [],
                 current_codebook: currentCodebookForModel(),
                 allowed_decisions: ["new_code", "already_covered", "possible_merge"]
@@ -1610,6 +1722,7 @@
         const candidates = (noveltyOutput.novelty_decisions || []).filter((item) =>
           ["new_code", "possible_merge"].includes(item.decision)
         );
+        const themeGranularity = getThemeGranularityPrompt(state.preferences.themeGranularity);
         return [
           {
             role: "system",
@@ -1621,6 +1734,7 @@
             content: JSON.stringify(
               {
                 merge_instruction: state.preferences.mergePrompt,
+                theme_granularity_instruction: themeGranularity,
                 candidates,
                 current_codebook: currentCodebookForModel(),
                 merge_rule: [
@@ -2666,13 +2780,14 @@
             preferences: safePreferences,
             autosavedAt: state.autosavedAt || exportedAt
           },
-          codebook: state.codebook.map(({ id, ...code }) => {
+          codebook: sortedCodesByPrevalence(state.codebook).map(({ id, ...code }) => {
             const coverage = coverageForCode(code);
             return {
               ...code,
               coverage_percent: coverage.percent,
               coverage_ratio: `${coverage.count}/${coverage.total}`,
-              related_datapoints: coverage.docIds
+              related_datapoints: coverage.docIds,
+              example_datapoints: exampleDatapointsForCode(code)
             };
           }),
           audit_log: state.auditLog,
@@ -2700,13 +2815,14 @@
             tool: "Quala",
             exported_at: payload.exported_at,
             export_type: "codebook",
-            codebook: payload.codebook.map((code) => {
+            codebook: sortedCodesByPrevalence(payload.codebook, payload.project.docs, payload.data).map((code) => {
               const coverage = coverageForCode(code, payload.project.docs, payload.data);
               return {
                 ...code,
                 coverage_percent: coverage.percent,
                 coverage_ratio: `${coverage.count}/${coverage.total}`,
-                related_datapoints: coverage.docIds
+                related_datapoints: coverage.docIds,
+                example_datapoints: exampleDatapointsForCode(code, payload.project.docs, payload.data)
               };
             })
           };
@@ -2759,7 +2875,7 @@
       }
 
       function codebookExportRows(payload = exportPayload()) {
-        return payload.codebook.map((code) => {
+        return sortedCodesByPrevalence(payload.codebook, payload.project.docs, payload.data).map((code) => {
           const coverage = coverageForCode(code, payload.project.docs, payload.data);
           return {
             code_id: code.code_id,
@@ -2770,6 +2886,9 @@
             coverage_percent: coverage.percent,
             coverage_ratio: `${coverage.count}/${coverage.total}`,
             related_datapoints: coverage.docIds.join(", "),
+            example_datapoints: exampleDatapointsForCode(code, payload.project.docs, payload.data)
+              .map((doc) => `${doc.id}${doc.source ? ` (${doc.source})` : ""}: ${doc.text}`)
+              .join("\n"),
             example_quotes: (code.example_quotes || []).map((item) => `${item.doc_id}: ${item.quote}`).join("\n")
           };
         });
@@ -3099,7 +3218,7 @@
         });
       });
 
-      [els.apiKey, els.modelSelect, els.temperature, els.verbosity, els.reasoning, els.maxQuotes, els.codingUnitSize, els.codeAbstraction, els.lens, els.codebookPrompt, els.refinePrompt, els.mergePrompt, els.annotationPrompt].forEach(
+      [els.apiKey, els.modelSelect, els.temperature, els.verbosity, els.reasoning, els.maxQuotes, els.codingUnitSize, els.codeAbstraction, els.themeGranularity, els.lens, els.codebookPrompt, els.refinePrompt, els.mergePrompt, els.annotationPrompt].filter(Boolean).forEach(
         (el) => el.addEventListener("change", () => {
           readPreferences();
           renderCodingBehaviorPanels();

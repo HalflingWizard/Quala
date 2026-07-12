@@ -150,6 +150,96 @@ if (loadedProject.docs.length !== 1 || loadedProject.codebook[0].name !== "Test 
 if (loadedProject.preferences.apiKey === "should-not-load") {
   throw new Error("Project preferences should not import stored API keys.");
 }
+if (loadedProject.preferences.themeGranularity !== "balanced") {
+  throw new Error("Project preferences should default theme granularity to balanced.");
+}
+
+async function checkCodebookExampleDatapointExport() {
+  const payload = await QualaBackend.run({
+    tool: "Quala",
+    project: {
+      docs: [
+        {
+          id: "D1",
+          source: "interview-1.txt",
+          text: "alpha beta gamma",
+          status: "coded"
+        }
+      ],
+      preferences: {}
+    },
+    codebook: [
+      {
+        code_id: "C001",
+        name: "Test code",
+        definition: "A test code.",
+        status: "active",
+        example_quotes: [{ doc_id: "D1", quote: "beta", verified: true }]
+      }
+    ],
+    data: [
+      {
+        id: "D1",
+        source: "interview-1.txt",
+        text: "alpha beta gamma",
+        annotation: ["Test code"],
+        quotes: [{ quote: "beta", annotations: ["Test code"], code_ids: ["C001"] }]
+      }
+    ]
+  });
+  const examples = payload.codebook[0]?.example_datapoints || [];
+  if (examples[0]?.id !== "D1" || examples[0]?.text !== "alpha beta gamma") {
+    throw new Error("Codebook export did not include example datapoint text.");
+  }
+  if (examples[0]?.quotes[0]?.quote !== "beta") {
+    throw new Error("Codebook export did not include matching example quotes.");
+  }
+}
+
+async function checkCodebookPrevalenceSort() {
+  const payload = await QualaBackend.run({
+    tool: "Quala",
+    project: {
+      docs: [
+        { id: "D1", source: "one.txt", text: "alpha beta zeta", status: "coded" },
+        { id: "D2", source: "two.txt", text: "alpha beta", status: "coded" }
+      ],
+      preferences: {}
+    },
+    codebook: [
+      { code_id: "C003", name: "Zeta code", definition: "Zeta.", status: "active" },
+      { code_id: "C002", name: "Beta code", definition: "Beta.", status: "active" },
+      { code_id: "C001", name: "Alpha code", definition: "Alpha.", status: "active" }
+    ],
+    data: [
+      {
+        id: "D1",
+        source: "one.txt",
+        text: "alpha beta zeta",
+        annotation: ["Alpha code", "Beta code", "Zeta code"],
+        quotes: [
+          { quote: "alpha", annotations: ["Alpha code"], code_ids: ["C001"] },
+          { quote: "beta", annotations: ["Beta code"], code_ids: ["C002"] },
+          { quote: "zeta", annotations: ["Zeta code"], code_ids: ["C003"] }
+        ]
+      },
+      {
+        id: "D2",
+        source: "two.txt",
+        text: "alpha beta",
+        annotation: ["Alpha code", "Beta code"],
+        quotes: [
+          { quote: "alpha", annotations: ["Alpha code"], code_ids: ["C001"] },
+          { quote: "beta", annotations: ["Beta code"], code_ids: ["C002"] }
+        ]
+      }
+    ]
+  });
+  const names = payload.codebook.map((code) => code.name).join(", ");
+  if (names !== "Alpha code, Beta code, Zeta code") {
+    throw new Error(`Codebook was not sorted by prevalence and name. Saw ${names}.`);
+  }
+}
 
 const verification = QualaBackend.evidenceAuditor("alpha beta gamma", ["beta", "delta"]);
 if (!verification.verified_quotes[0].verified || verification.verified_quotes[0].start_char !== 6) {
@@ -177,11 +267,13 @@ if (o3.temperature || o3.verbosity || !o3.reasoning) {
 async function checkBackendRunWithoutSignal() {
   const progressEvents = [];
   const auditEvents = [];
+  const promptPayloads = [];
   const payload = await QualaBackend.run(
     {
       apiKey: "test-key",
       project: {
-        docs: [{ id: "D1", source: "stub", text: "alpha beta gamma", status: "queued" }]
+        docs: [{ id: "D1", source: "stub", text: "alpha beta gamma", status: "queued" }],
+        preferences: { themeGranularity: "detailed" }
       }
     },
     {
@@ -192,7 +284,9 @@ async function checkBackendRunWithoutSignal() {
         progressEvents.push(event);
       },
       api: {
-        async createStructuredResponse({ schema }) {
+        async createStructuredResponse({ input, schema }) {
+          const userMessage = (input || []).find((message) => message.role === "user");
+          if (userMessage?.content) promptPayloads.push(JSON.parse(userMessage.content));
           if (schema.name === "quala_document_scout") {
             return {
               doc_id: "D1",
@@ -251,6 +345,9 @@ async function checkBackendRunWithoutSignal() {
   }
   if (!auditEvents.some((event) => event.event_type === "document_scout" && event.output?.scout_codes?.length)) {
     throw new Error("Backend did not stream agent output events.");
+  }
+  if (!promptPayloads.some((item) => String(item.theme_granularity_instruction || "").includes("Detailed"))) {
+    throw new Error("Backend prompts did not include theme granularity instructions.");
   }
 }
 
@@ -325,6 +422,8 @@ const viteConfig = fs.readFileSync(path.join(__dirname, "vite.config.js"), "utf8
 const gitignore = fs.readFileSync(path.join(__dirname, ".gitignore"), "utf8");
 const packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, "package.json"), "utf8"));
 assertIncludes(cli, "loadEnvFile", "CLI does not load .env files.");
+assertIncludes(cli, "--theme-granularity", "CLI does not expose theme granularity.");
+assertIncludes(cli, "themeGranularity", "CLI does not save theme granularity into preferences.");
 assertIncludes(viteConfig, "OPENAI_API_KEY", "Vite config does not expose the local .env API key.");
 assertIncludes(webApp, "__QUALA_OPENAI_API_KEY__", "Web GUI does not read the Vite .env API key.");
 assertIncludes(gitignore, ".env", ".env is not ignored by git.");
@@ -332,6 +431,11 @@ assertIncludes(html, "/src/main.jsx", "Vite React entry script is missing.");
 assertIncludes(main, "createRoot", "React root setup is missing.");
 assertIncludes(packageJson.scripts.start, "vite", "npm start does not run the React dev server.");
 assertIncludes(webApp, "QualaBackend.run", "Web GUI does not call the backend run path.");
+assertIncludes(webApp, "Theme granularity", "Web GUI does not expose theme granularity.");
+assertIncludes(webApp, "themeGranularity", "Web GUI does not save theme granularity.");
+assertIncludes(webApp, "sortedCodesByPrevalence", "Web GUI does not sort codes by prevalence.");
+assertIncludes(webApp, "Search codebook", "Web GUI does not show a codebook search field.");
+assertIncludes(webApp, "codeMatchesSearch", "Web GUI does not filter the codebook by keyword.");
 assertIncludes(webApp, "readDocxBytes", "Web GUI does not use the shared DOCX reader.");
 assertIncludes(webApp, ".docx", "Web GUI file input does not accept DOCX files.");
 assertIncludes(webApp, "multiple", "Web GUI file input does not accept multiple files.");
@@ -347,9 +451,17 @@ assertIncludes(webApp, "StageFindings", "Web GUI does not render readable agent 
 assertIncludes(webApp, "onAudit", "Web GUI does not receive live agent output events.");
 assertIncludes(webApp, "relatedDatapointsForCode", "Codebook does not calculate related datapoints.");
 assertIncludes(webApp, "<th>Datapoints</th>", "Codebook does not show a datapoints column.");
+assertIncludes(webApp, "exportCodebookForDownload", "Web GUI cannot export the codebook only.");
+assertIncludes(webApp, "codebookCsvRows", "Web GUI cannot export the codebook as CSV.");
+assertIncludes(webApp, "Download CSV", "Web GUI does not show a codebook CSV export button.");
 assertIncludes(webApp, "Code Refinement", "Web GUI does not expose a code refinement page.");
+assertIncludes(webApp, "Search codes", "Code refinement does not show a code search field.");
 assertIncludes(webApp, "mergeCodes", "Web GUI cannot merge selected codes.");
 assertIncludes(webApp, "runAgentRefinement", "Web GUI cannot run agent-guided code refinement.");
+assertIncludes(webApp, "exportRefinementForDownload", "Web GUI cannot export agent-guided refinement results.");
+assertIncludes(webApp, "Download proposal JSON", "Web GUI does not show a refinement proposal JSON download button.");
+assertIncludes(webApp, "Download proposal CSV", "Web GUI does not show a refinement proposal CSV download button.");
+assertIncludes(webApp, "agent_guided_refinement", "Web GUI does not save agent-guided refinement results in project history.");
 assertIncludes(webApp, "Agent-guided split", "Web GUI does not expose agent-guided split.");
 assertIncludes(webApp, "EvidencePopup", "Code refinement does not show evidence datapoint popups.");
 assertIncludes(webApp, "EvidenceQuoteList", "Code refinement does not render quote evidence buttons.");
@@ -368,8 +480,11 @@ assertIncludes(css, ".actorBadge", "Agent output actor badge styling is missing.
 assertIncludes(css, ".findingCard", "Readable agent finding cards are missing styling.");
 assertIncludes(css, ".dropZone", "Web GUI drag and drop styling is missing.");
 assertIncludes(css, ".tagList", "Codebook datapoint tags are missing styling.");
+assertIncludes(css, ".searchField", "Codebook search field styling is missing.");
 
 checkBackendRunWithoutSignal()
+  .then(checkCodebookExampleDatapointExport)
+  .then(checkCodebookPrevalenceSort)
   .then(checkCodeRefinementWithoutNetwork)
   .then(() => {
     console.log("startup ok");

@@ -6,7 +6,7 @@ const QualaBackend = require("./app.js");
 function usage() {
   return [
     "Usage:",
-    "  node cli.js run input-project.json output-project.json",
+    "  node cli.js run input-project.json output-project.json [--theme-granularity broad|balanced|detailed]",
     "  node cli.js init output-project.json",
     "  node cli.js add-text input-project.json output-project.json --id D1 --source notes.docx --text-file notes.docx",
     "  node cli.js add-text input-project.json output-project.json --id D1 --source pasted --text \"Datapoint text\"",
@@ -69,6 +69,25 @@ function optionValue(args, name) {
   const index = args.indexOf(name);
   if (index === -1) return "";
   return args[index + 1] || "";
+}
+
+function withRunOptions(payload, args = []) {
+  const themeGranularity = optionValue(args, "--theme-granularity");
+  if (!themeGranularity) return payload;
+  if (!["broad", "balanced", "detailed"].includes(themeGranularity)) {
+    throw new Error("--theme-granularity must be broad, balanced, or detailed.");
+  }
+  const project = payload.project || {};
+  return {
+    ...payload,
+    project: {
+      ...project,
+      preferences: {
+        ...(project.preferences || payload.preferences || {}),
+        themeGranularity
+      }
+    }
+  };
 }
 
 function ensureProjectShape(payload) {
@@ -191,14 +210,14 @@ async function main() {
   if (commandOrInput === "run") {
     const [inputPath, outputPath] = args;
     if (!inputPath || !outputPath) throw new Error("run needs input and output project paths.");
-    const result = await QualaBackend.run(readJson(inputPath));
+    const result = await QualaBackend.run(withRunOptions(readJson(inputPath), args.slice(2)));
     writeJson(outputPath, result);
     return;
   }
 
   const [outputPath] = args;
   if (!outputPath) throw new Error("Missing output project path.\n\n" + usage());
-  const result = await QualaBackend.run(readJson(commandOrInput));
+  const result = await QualaBackend.run(withRunOptions(readJson(commandOrInput), args.slice(1)));
   writeJson(outputPath, result);
 }
 

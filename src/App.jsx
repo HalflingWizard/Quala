@@ -5,6 +5,11 @@ import "./styles.css";
 const defaultProjectName = "project.json";
 const envApiKey =
   typeof __QUALA_OPENAI_API_KEY__ !== "undefined" ? __QUALA_OPENAI_API_KEY__ : import.meta.env.VITE_OPENAI_API_KEY || "";
+const themeGranularityOptions = [
+  { value: "broad", label: "Broad themes" },
+  { value: "balanced", label: "Balanced themes" },
+  { value: "detailed", label: "Detailed themes" }
+];
 
 function nowIso() {
   return new Date().toISOString();
@@ -64,14 +69,30 @@ function nextCodeIdFromCodebook(codebook) {
   return `C${String(max + 1).padStart(3, "0")}`;
 }
 
-function downloadJson(name, payload) {
-  const blob = new Blob([`${JSON.stringify(payload, null, 2)}\n`], { type: "application/json;charset=utf-8" });
+function downloadText(name, content, type) {
+  const blob = new Blob([content], { type });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
   link.download = name;
   link.click();
   URL.revokeObjectURL(url);
+}
+
+function downloadJson(name, payload) {
+  downloadText(name, `${JSON.stringify(payload, null, 2)}\n`, "application/json;charset=utf-8");
+}
+
+function csvCell(value) {
+  const text = Array.isArray(value) ? value.join("\n") : String(value ?? "");
+  return `"${text.replaceAll('"', '""')}"`;
+}
+
+function csvFromRows(rows) {
+  const columns = Array.from(new Set(rows.flatMap((row) => Object.keys(row))));
+  const header = columns.map(csvCell).join(",");
+  const body = rows.map((row) => columns.map((column) => csvCell(row[column])).join(",")).join("\n");
+  return `${header}\n${body}\n`;
 }
 
 function readFileAsText(file) {
@@ -198,6 +219,19 @@ function Preferences({ preferences, setPreference }) {
             value={preferences.maxQuotes || 12}
             onChange={(event) => setPreference("maxQuotes", Number(event.target.value))}
           />
+        </label>
+        <label>
+          Theme granularity
+          <select
+            value={preferences.themeGranularity || "balanced"}
+            onChange={(event) => setPreference("themeGranularity", event.target.value)}
+          >
+            {themeGranularityOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
         </label>
         <label>
           Temperature
@@ -396,10 +430,203 @@ function relatedDatapointsForCode(code, docs, annotations) {
   return Array.from(docIds).sort((a, b) => a.localeCompare(b));
 }
 
-function Codebook({ codebook, docs, annotations }) {
+function sortedCodesByPrevalence(codebook, docs, annotations) {
+  return [...(codebook || [])].sort((a, b) => {
+    const aCount = relatedDatapointsForCode(a, docs, annotations).length;
+    const bCount = relatedDatapointsForCode(b, docs, annotations).length;
+    return bCount - aCount || String(a.name || a.code_id || "").localeCompare(String(b.name || b.code_id || ""));
+  });
+}
+
+function codeMatchesSearch(code, docs, annotations, query) {
+  const cleanQuery = String(query || "").trim().toLowerCase();
+  if (!cleanQuery) return true;
+  const datapointIds = relatedDatapointsForCode(code, docs, annotations);
+  const examples = exampleDatapointsForCode(code, docs, annotations);
+  const searchableText = [
+    code.code_id,
+    code.name,
+    code.definition,
+    code.status,
+    code.created_from_doc,
+    datapointIds.join(" "),
+    ...examples.flatMap((doc) => [
+      doc.id,
+      doc.source,
+      doc.text,
+      ...(doc.quotes || []).flatMap((quote) => [quote.quote, quote.rationale, ...(quote.annotations || [])])
+    ])
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  return searchableText.includes(cleanQuery);
+}
+
+function exampleDatapointsForCode(code, docs, annotations) {
+  const docsById = new Map((docs || []).map((doc) => [String(doc.id), doc]));
+  const annotationsById = new Map((annotations || []).map((doc) => [String(doc.id), doc]));
+  const docIds = new Set(relatedDatapointsForCode(code, docs, annotations).map(String));
+  for (const example of code.example_quotes || []) {
+    const docId = example.doc_id || code.created_from_doc;
+    if (docId && example.verified !== false) docIds.add(String(docId));
+  }
+  return Array.from(docIds)
+    .sort((a, b) => a.localeCompare(b))
+    .map((docId) => {
+      const sourceDoc = docsById.get(docId) || {};
+      const annotationDoc = annotationsById.get(docId) || {};
+      const quotes = [];
+      for (const quote of annotationDoc.quotes || []) {
+        if (quoteMatchesCode(quote, code)) quotes.push({ ...quote });
+      }
+      for (const example of code.example_quotes || []) {
+        const exampleDocId = String(example.doc_id || code.created_from_doc || "");
+        if (example.verified === false || exampleDocId !== docId || !example.quote) continue;
+        if (quotes.some((quote) => quote.quote === example.quote)) continue;
+        quotes.push({
+          id: "",
+          quote: example.quote,
+          code_ids: code.code_id ? [code.code_id] : [],
+          annotations: code.name ? [code.name] : [],
+          certainty: "",
+          rationale: "Codebook example quote."
+        });
+      }
+      return {
+        id: docId,
+        source: sourceDoc.source || annotationDoc.source || "",
+        text: sourceDoc.text || annotationDoc.text || "",
+        status: sourceDoc.status || "",
+        annotation: annotationDoc.annotation || [],
+        quotes
+      };
+    });
+}
+
+function exportProjectForDownload(project) {
+  const docs = project.project?.docs || [];
+  const annotations = project.data || [];
+  return {
+    ...project,
+    codebook: sortedCodesByPrevalence(project.codebook || [], docs, annotations).map((code) => ({
+      ...code,
+      related_datapoints: relatedDatapointsForCode(code, docs, annotations),
+      example_datapoints: exampleDatapointsForCode(code, docs, annotations)
+    }))
+  };
+}
+
+function exportCodebookForDownload(project) {
+  return {
+    tool: "Quala",
+    exported_at: nowIso(),
+    export_type: "codebook",
+    codebook: exportProjectForDownload(project).codebook
+  };
+}
+
+function codebookCsvRows(project) {
+  return exportCodebookForDownload(project).codebook.map((code) => ({
+    code_id: code.code_id,
+    name: code.name,
+    definition: code.definition,
+    status: code.status,
+    created_from_doc: code.created_from_doc,
+    coverage_percent: code.coverage_percent,
+    coverage_ratio: code.coverage_ratio,
+    related_datapoints: (code.related_datapoints || []).join(", "),
+    example_datapoints: (code.example_datapoints || [])
+      .map((doc) => `${doc.id}${doc.source ? ` (${doc.source})` : ""}: ${doc.text}`)
+      .join("\n"),
+    example_quotes: (code.example_datapoints || [])
+      .flatMap((doc) => (doc.quotes || []).map((quote) => `${doc.id}: ${quote.quote}`))
+      .join("\n")
+  }));
+}
+
+function codebookFileName(fileName, extension = "json") {
+  const base = String(fileName || defaultProjectName).replace(/\.json$/i, "");
+  return `${base}-codebook.${extension}`;
+}
+
+function exportRefinementForDownload(refinementResult) {
+  return {
+    tool: "Quala",
+    exported_at: nowIso(),
+    export_type: "agent_guided_refinement",
+    mode: refinementResult?.mode || "",
+    lens: refinementResult?.lens || "",
+    selected_codes: refinementResult?.selected_codes || [],
+    proposal: refinementResult?.proposal || {},
+    audit_log: refinementResult?.audit_log || []
+  };
+}
+
+function refinementCsvRows(refinementResult) {
+  return (refinementResult?.proposal?.replacement_codes || []).flatMap((code) => {
+    const assignments = code.assignments || [];
+    if (!assignments.length) {
+      return [
+        {
+          mode: refinementResult?.mode || "",
+          lens: refinementResult?.lens || "",
+          temporary_id: code.temporary_id,
+          name: code.name,
+          definition: code.definition,
+          source_code_ids: (code.source_code_ids || []).join(", "),
+          doc_id: "",
+          quote: "",
+          reason: ""
+        }
+      ];
+    }
+    return assignments.map((assignment) => ({
+      mode: refinementResult?.mode || "",
+      lens: refinementResult?.lens || "",
+      temporary_id: code.temporary_id,
+      name: code.name,
+      definition: code.definition,
+      source_code_ids: (code.source_code_ids || []).join(", "),
+      doc_id: assignment.doc_id,
+      quote: assignment.quote,
+      reason: assignment.reason
+    }));
+  });
+}
+
+function refinementFileName(fileName, refinementResult, extension = "json") {
+  const base = String(fileName || defaultProjectName).replace(/\.json$/i, "");
+  const mode = refinementResult?.mode === "split" ? "split" : "merge";
+  return `${base}-${mode}-refinement.${extension}`;
+}
+
+function Codebook({ codebook, docs, annotations, onDownloadJson, onDownloadCsv }) {
+  const sortedCodebook = sortedCodesByPrevalence(codebook, docs, annotations);
+  const [searchQuery, setSearchQuery] = useState("");
+  const visibleCodebook = sortedCodebook.filter((code) => codeMatchesSearch(code, docs, annotations, searchQuery));
   return (
     <section className="panel">
-      <h2>Codebook</h2>
+      <div className="panelHeader">
+        <h2>Codebook</h2>
+        <div className="buttonRow">
+          <button type="button" className="secondary" onClick={onDownloadJson}>
+            Download JSON
+          </button>
+          <button type="button" className="secondary" onClick={onDownloadCsv}>
+            Download CSV
+          </button>
+        </div>
+      </div>
+      <label className="searchField">
+        Search codebook
+        <input
+          type="search"
+          value={searchQuery}
+          onChange={(event) => setSearchQuery(event.target.value)}
+          placeholder="Search names, definitions, quotes, or datapoints"
+        />
+      </label>
       <div className="tableWrap">
         <table>
           <thead>
@@ -412,8 +639,8 @@ function Codebook({ codebook, docs, annotations }) {
             </tr>
           </thead>
           <tbody>
-            {codebook.length ? (
-              codebook.map((code) => {
+            {visibleCodebook.length ? (
+              visibleCodebook.map((code) => {
                 const relatedDatapoints = relatedDatapointsForCode(code, docs, annotations);
                 return (
                   <tr key={code.code_id || code.name}>
@@ -437,7 +664,9 @@ function Codebook({ codebook, docs, annotations }) {
               })
             ) : (
               <tr>
-                <td colSpan={5} className="empty">No codes yet.</td>
+                <td colSpan={5} className="empty">
+                  {sortedCodebook.length ? "No codes match your search." : "No codes yet."}
+                </td>
               </tr>
             )}
           </tbody>
@@ -447,7 +676,17 @@ function Codebook({ codebook, docs, annotations }) {
   );
 }
 
-function CodeRefinement({ codebook, docs, annotations, onQuickMerge, onRunRefinement, onApplyProposal, isProcessing }) {
+function CodeRefinement({
+  codebook,
+  docs,
+  annotations,
+  onQuickMerge,
+  onRunRefinement,
+  onApplyProposal,
+  onDownloadProposalJson,
+  onDownloadProposalCsv,
+  isProcessing
+}) {
   const [mode, setMode] = useState("agentMerge");
   const [selectedCodeIds, setSelectedCodeIds] = useState([]);
   const [mergedName, setMergedName] = useState("");
@@ -455,6 +694,7 @@ function CodeRefinement({ codebook, docs, annotations, onQuickMerge, onRunRefine
   const [lens, setLens] = useState("");
   const [proposal, setProposal] = useState(null);
   const [evidencePopup, setEvidencePopup] = useState(null);
+  const [searchQuery, setSearchQuery] = useState("");
 
   function toggleCode(codeId) {
     setProposal(null);
@@ -508,7 +748,9 @@ function CodeRefinement({ codebook, docs, annotations, onQuickMerge, onRunRefine
     });
   }
 
-  const activeCodes = codebook.filter((code) => !["merged", "rejected"].includes(String(code.status || "").toLowerCase()));
+  const sortedCodebook = sortedCodesByPrevalence(codebook, docs, annotations);
+  const visibleCodebook = sortedCodebook.filter((code) => codeMatchesSearch(code, docs, annotations, searchQuery));
+  const activeCodes = sortedCodebook.filter((code) => !["merged", "rejected"].includes(String(code.status || "").toLowerCase()));
   const needsMultiple = mode !== "split";
   const canRunAgent = selectedCodeIds.length >= (needsMultiple ? 2 : 1) && !isProcessing;
 
@@ -539,8 +781,17 @@ function CodeRefinement({ codebook, docs, annotations, onQuickMerge, onRunRefine
 
       <div className="mergeLayout">
         <div className="mergeCodeList">
-          {codebook.length ? (
-            codebook.map((code) => {
+          <label className="searchField">
+            Search codes
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search names, definitions, quotes, or datapoints"
+            />
+          </label>
+          {visibleCodebook.length ? (
+            visibleCodebook.map((code) => {
               const codeId = code.code_id || code.name;
               const relatedDatapoints = relatedDatapointsForCode(code, docs, annotations);
               const canSelect = activeCodes.some((activeCode) => (activeCode.code_id || activeCode.name) === codeId);
@@ -583,7 +834,7 @@ function CodeRefinement({ codebook, docs, annotations, onQuickMerge, onRunRefine
               );
             })
           ) : (
-            <p className="empty">No codes have been found yet.</p>
+            <p className="empty">{sortedCodebook.length ? "No codes match your search." : "No codes have been found yet."}</p>
           )}
         </div>
 
@@ -662,6 +913,14 @@ function CodeRefinement({ codebook, docs, annotations, onQuickMerge, onRunRefine
               <button type="button" disabled={!(proposal.proposal?.replacement_codes || []).length} onClick={applyProposal}>
                 Apply proposal
               </button>
+              <div className="buttonRow">
+                <button type="button" className="secondary" onClick={() => onDownloadProposalJson(proposal)}>
+                  Download proposal JSON
+                </button>
+                <button type="button" className="secondary" onClick={() => onDownloadProposalCsv(proposal)}>
+                  Download proposal CSV
+                </button>
+              </div>
             </div>
           ) : null}
         </div>
@@ -1302,7 +1561,28 @@ export default function App() {
           }
         }
       );
-      setStatus("Review the proposed replacement codes.");
+      const exportedAt = nowIso();
+      setProject((current) => ({
+        ...current,
+        exported_at: exportedAt,
+        audit_log: [...(current.audit_log || []), ...(result.audit_log || [])],
+        project: {
+          ...current.project,
+          autosavedAt: exportedAt,
+          history: [
+            ...(current.project.history || []),
+            {
+              at: exportedAt,
+              event: "agent_guided_refinement",
+              mode,
+              code_ids: codeIds,
+              reason: lens || result.proposal?.summary || "",
+              proposal: result.proposal
+            }
+          ]
+        }
+      }));
+      setStatus("Review the proposed replacement codes. The proposal was saved in the project history.");
       return result;
     } catch (error) {
       setStatus(error.message);
@@ -1502,7 +1782,7 @@ export default function App() {
             setStatus("Created a new project.");
           }}
           onLoad={loadProject}
-          onDownload={() => downloadJson(fileName || defaultProjectName, project)}
+          onDownload={() => downloadJson(fileName || defaultProjectName, exportProjectForDownload(project))}
           fileName={fileName}
           setFileName={setFileName}
         />
@@ -1522,7 +1802,19 @@ export default function App() {
 
       {activeView === "results" && (
         <div className="mainGrid">
-          <Codebook codebook={project.codebook || []} docs={docs} annotations={project.data || []} />
+          <Codebook
+            codebook={project.codebook || []}
+            docs={docs}
+            annotations={project.data || []}
+            onDownloadJson={() => downloadJson(codebookFileName(fileName), exportCodebookForDownload(project))}
+            onDownloadCsv={() =>
+              downloadText(
+                codebookFileName(fileName, "csv"),
+                csvFromRows(codebookCsvRows(project)),
+                "text/csv;charset=utf-8"
+              )
+            }
+          />
           <Annotations data={project.data || []} />
         </div>
       )}
@@ -1535,6 +1827,16 @@ export default function App() {
           onQuickMerge={mergeCodes}
           onRunRefinement={runAgentRefinement}
           onApplyProposal={applyRefinementProposal}
+          onDownloadProposalJson={(proposal) =>
+            downloadJson(refinementFileName(fileName, proposal), exportRefinementForDownload(proposal))
+          }
+          onDownloadProposalCsv={(proposal) =>
+            downloadText(
+              refinementFileName(fileName, proposal, "csv"),
+              csvFromRows(refinementCsvRows(proposal)),
+              "text/csv;charset=utf-8"
+            )
+          }
           isProcessing={isProcessing}
         />
       )}
